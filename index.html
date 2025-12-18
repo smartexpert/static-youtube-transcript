@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Transcript Cleaner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jq-web@0.5.1/jq.wasm.min.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        slate: {
+                            950: 'hsl(222.2, 84%, 4.9%)',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: hsl(222.2, 84%, 4.9%);
+        }
+    </style>
+</head>
+<body class="min-h-screen text-slate-50">
+    <div x-data="transcriptCleaner()" class="container mx-auto px-4 py-8 max-w-3xl">
+        <!-- Header -->
+        <header class="mb-8 text-center">
+            <h1 class="text-3xl font-bold text-slate-50">YouTube Transcript Cleaner</h1>
+            <p class="mt-2 text-slate-400">Paste raw YouTube transcript JSON to extract clean, readable text</p>
+        </header>
+
+        <!-- Loading indicator for WASM -->
+        <div x-show="!isJqReady" class="mb-4 rounded-md bg-slate-800 border border-slate-700 p-4 text-sm text-slate-300 text-center">
+            <svg class="animate-spin inline-block w-4 h-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Loading JQ processor...
+        </div>
+
+        <!-- Input Section -->
+        <div class="rounded-lg border border-slate-800 bg-slate-900 p-6 shadow-sm mb-6">
+            <div class="flex justify-between items-center mb-3">
+                <label for="input" class="text-sm font-medium text-slate-200">Paste Raw Transcript JSON</label>
+                <button
+                    @click="clear()"
+                    class="text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                    x-show="input.length > 0"
+                >
+                    Clear
+                </button>
+            </div>
+            <textarea
+                id="input"
+                x-model="input"
+                @input="error = ''"
+                class="w-full h-48 rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:cursor-not-allowed disabled:opacity-50 font-mono resize-y"
+                placeholder='[{"events":[{"segs":[{"utf8":"Your transcript text..."}]}]}]'
+                :disabled="!isJqReady"
+            ></textarea>
+        </div>
+
+        <!-- Process Button -->
+        <div class="flex justify-center mb-6">
+            <button
+                @click="process()"
+                :disabled="!isJqReady || isProcessing || !input.trim()"
+                class="inline-flex items-center justify-center rounded-md bg-slate-50 px-6 py-2.5 text-sm font-medium text-slate-900 hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:pointer-events-none disabled:opacity-50 transition-colors"
+            >
+                <template x-if="isProcessing">
+                    <svg class="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                </template>
+                <span x-text="isProcessing ? 'Processing...' : 'Process Transcript'"></span>
+            </button>
+        </div>
+
+        <!-- Error Display -->
+        <div
+            x-show="error"
+            x-transition
+            class="mb-6 rounded-md bg-red-900/50 border border-red-800 p-4 text-sm text-red-200"
+        >
+            <div class="flex items-start">
+                <svg class="w-5 h-5 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+                </svg>
+                <span x-text="error"></span>
+            </div>
+        </div>
+
+        <!-- Output Section -->
+        <div
+            x-show="output"
+            x-transition
+            class="rounded-lg border border-slate-800 bg-slate-900 p-6 shadow-sm"
+        >
+            <div class="flex justify-between items-center mb-3">
+                <label for="output" class="text-sm font-medium text-slate-200">Clean Transcript</label>
+                <div class="text-xs text-slate-400">
+                    <span x-text="wordCount"></span> words, <span x-text="charCount"></span> characters
+                </div>
+            </div>
+            <textarea
+                id="output"
+                x-model="output"
+                readonly
+                class="w-full h-48 rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-900 resize-y"
+            ></textarea>
+            <div class="mt-4 flex justify-end">
+                <button
+                    @click="copyToClipboard()"
+                    class="inline-flex items-center justify-center rounded-md border border-slate-800 bg-transparent px-4 py-2 text-sm font-medium text-slate-50 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-900 transition-colors"
+                >
+                    <template x-if="!copied">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                        </svg>
+                    </template>
+                    <template x-if="copied">
+                        <svg class="w-4 h-4 mr-2 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                        </svg>
+                    </template>
+                    <span x-text="copied ? 'Copied!' : 'Copy to Clipboard'"></span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="mt-8 text-center text-sm text-slate-500">
+            <p>Paste the raw JSON from YouTube's timedtext API to extract clean transcript text.</p>
+            <p class="mt-1">Processing is done entirely in your browser using WebAssembly.</p>
+        </footer>
+    </div>
+
+    <script>
+        function transcriptCleaner() {
+            return {
+                input: '',
+                output: '',
+                error: '',
+                isProcessing: false,
+                isJqReady: false,
+                copied: false,
+
+                get wordCount() {
+                    return this.output ? this.output.trim().split(/\s+/).filter(Boolean).length : 0;
+                },
+
+                get charCount() {
+                    return this.output.length;
+                },
+
+                init() {
+                    // Wait for jq-web to be ready
+                    this.waitForJq();
+                },
+
+                async waitForJq() {
+                    // jq-web exposes a global 'jq' object with promised API
+                    const checkJq = () => {
+                        if (typeof jq !== 'undefined' && jq.promised && jq.promised.json) {
+                            this.isJqReady = true;
+                        } else {
+                            setTimeout(checkJq, 100);
+                        }
+                    };
+                    checkJq();
+                },
+
+                async process() {
+                    if (!this.input.trim()) {
+                        this.error = 'Please paste transcript JSON before processing.';
+                        return;
+                    }
+
+                    this.isProcessing = true;
+                    this.error = '';
+                    this.output = '';
+
+                    try {
+                        // Parse JSON first to validate
+                        let inputData;
+                        try {
+                            inputData = JSON.parse(this.input);
+                        } catch (e) {
+                            throw new Error('Invalid JSON: ' + e.message);
+                        }
+
+                        // Normalize input: wrap in array if needed, handle different formats
+                        // YouTube API can return: [{events:[...]}] or {events:[...]} or just the events array
+                        if (!Array.isArray(inputData)) {
+                            inputData = [inputData];
+                        }
+
+                        // Run JQ query using promised API
+                        // Handle both formats: objects with 'events' key, or direct event arrays
+                        const jqQuery = '[.[] | if type == "object" and has("events") then .events[] else . end | .segs | select(.) | .[].utf8 | gsub("\\n"; " ")] | join("")';
+                        const result = await jq.promised.json(inputData, jqQuery);
+
+                        if (typeof result === 'string') {
+                            this.output = result;
+                        } else {
+                            this.output = JSON.stringify(result);
+                        }
+
+                        if (!this.output || this.output === '""') {
+                            this.error = 'No transcript text found in the provided JSON. Make sure it contains events with segs containing utf8 text.';
+                            this.output = '';
+                        }
+                    } catch (e) {
+                        this.error = e.message || 'An error occurred while processing the transcript.';
+                    } finally {
+                        this.isProcessing = false;
+                    }
+                },
+
+                clear() {
+                    this.input = '';
+                    this.output = '';
+                    this.error = '';
+                    this.copied = false;
+                },
+
+                async copyToClipboard() {
+                    try {
+                        await navigator.clipboard.writeText(this.output);
+                        this.copied = true;
+                        setTimeout(() => {
+                            this.copied = false;
+                        }, 2000);
+                    } catch (e) {
+                        this.error = 'Failed to copy to clipboard. Please select and copy manually.';
+                    }
+                }
+            };
+        }
+    </script>
+</body>
+</html>
