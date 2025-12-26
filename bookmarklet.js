@@ -1,21 +1,16 @@
 /**
  * YouTube Transcript Extractor Bookmarklet
  *
- * This bookmarklet helps users extract transcript JSON from YouTube videos.
- * Due to YouTube's security headers, we can't fetch the transcript directly,
- * so this provides a helper UI for copying from DevTools Network tab.
+ * AUTOMATED VERSION - Intercepts XHR requests to capture transcript automatically
  *
  * Usage:
  * 1. Go to a YouTube video page
  * 2. Click the bookmarklet
- * 3. Follow the instructions to copy transcript JSON from DevTools
- * 4. Paste into the helper, validate, and copy
- * 5. Paste into the YouTube Transcript Cleaner app
+ * 3. Click the CC button on the video
+ * 4. Transcript is automatically captured and copied to clipboard
+ * 5. Click "Open App" to process the transcript
  *
- * To minify for bookmarklet use:
- * 1. Remove comments and extra whitespace
- * 2. URL-encode # as %23 and % as %25 in style strings
- * 3. Prefix with "javascript:"
+ * Fallback: Manual fetch button if CC was already enabled
  */
 
 (function() {
@@ -34,13 +29,9 @@
 
     // Try to find ytInitialPlayerResponse
     let playerResponse = null;
-
-    // Method 1: Check global variable
     if (window.ytInitialPlayerResponse) {
         playerResponse = window.ytInitialPlayerResponse;
     }
-
-    // Method 2: Could also search in script tags if needed
 
     if (!playerResponse) {
         alert('Could not find video data.');
@@ -64,10 +55,47 @@
         existing.remove();
     }
 
-    // Create overlay UI
+    // State
+    let capturedTranscript = null;
+    let isIntercepting = false;
+
+    // ========== XHR INTERCEPTION ==========
+    function installXHRInterceptor(onCapture) {
+        if (isIntercepting) return;
+        isIntercepting = true;
+
+        const originalOpen = XMLHttpRequest.prototype.open;
+        const originalSend = XMLHttpRequest.prototype.send;
+
+        XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+            this._yt_url = url;
+            this._yt_isTimedText = url && url.includes('timedtext') && !url.includes('caps=');
+            return originalOpen.call(this, method, url, ...rest);
+        };
+
+        XMLHttpRequest.prototype.send = function(body) {
+            if (this._yt_isTimedText) {
+                this.addEventListener('load', function() {
+                    if (this.responseText && this.responseText.length > 100) {
+                        try {
+                            const json = JSON.parse(this.responseText);
+                            if (json.events && json.events.length > 0) {
+                                onCapture(this.responseText, json);
+                            }
+                        } catch (e) {
+                            // Not valid JSON, ignore
+                        }
+                    }
+                });
+            }
+            return originalSend.call(this, body);
+        };
+    }
+
+    // ========== UI CREATION ==========
     const overlay = document.createElement('div');
     overlay.id = 'yt-transcript-extractor';
-    overlay.style.cssText = 'position:fixed;top:20px;right:20px;background:#0f0f0f;color:#f1f1f1;padding:20px;border-radius:12px;z-index:999999;max-width:520px;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;font-size:14px;box-shadow:0 8px 32px rgba(0,0,0,0.5);border:1px solid #272727;max-height:90vh;overflow-y:auto';
+    overlay.style.cssText = 'position:fixed;top:20px;right:20px;background:#0f0f0f;color:#f1f1f1;padding:20px;border-radius:12px;z-index:999999;max-width:400px;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;font-size:14px;box-shadow:0 8px 32px rgba(0,0,0,0.5);border:1px solid #272727';
 
     // Header
     const header = document.createElement('div');
@@ -96,32 +124,28 @@
     header.appendChild(closeBtn);
     overlay.appendChild(header);
 
-    // Video title section
-    const titleSection = document.createElement('div');
-    titleSection.style.marginBottom = '12px';
+    // Video title
+    const titleDiv = document.createElement('div');
+    titleDiv.style.cssText = 'color:#aaa;font-size:12px;margin-bottom:16px';
+    titleDiv.innerHTML = '<strong style="color:#f1f1f1">Video:</strong> ' + title.substring(0, 50) + (title.length > 50 ? '...' : '');
+    overlay.appendChild(titleDiv);
 
-    const titleLabel = document.createElement('div');
-    titleLabel.textContent = 'Video';
-    titleLabel.style.cssText = 'color:#aaa;font-size:12px;margin-bottom:4px';
-
-    const titleValue = document.createElement('div');
-    titleValue.textContent = title;
-    titleValue.style.cssText = 'color:#f1f1f1;font-weight:500';
-
-    titleSection.appendChild(titleLabel);
-    titleSection.appendChild(titleValue);
-    overlay.appendChild(titleSection);
+    // Status indicator
+    const statusDiv = document.createElement('div');
+    statusDiv.style.cssText = 'background:#1a1a2e;border:1px solid #3b82f6;border-radius:8px;padding:16px;margin-bottom:16px;text-align:center';
+    statusDiv.innerHTML = '<div style="font-size:24px;margin-bottom:8px">⏳</div><div style="color:#60a5fa">Waiting for captions...</div><div style="color:#6b7280;font-size:12px;margin-top:4px">Click the CC button on the video</div>';
+    overlay.appendChild(statusDiv);
 
     // Language selector
     const langSection = document.createElement('div');
-    langSection.style.marginBottom = '16px';
+    langSection.style.cssText = 'margin-bottom:16px';
 
     const langLabel = document.createElement('div');
-    langLabel.textContent = 'Language';
+    langLabel.textContent = 'Language (for manual fetch):';
     langLabel.style.cssText = 'color:#aaa;font-size:12px;margin-bottom:6px';
 
     const langSelect = document.createElement('select');
-    langSelect.style.cssText = 'width:100%;padding:10px;background:#272727;color:#f1f1f1;border:1px solid #3f3f3f;border-radius:6px;font-size:14px;cursor:pointer';
+    langSelect.style.cssText = 'width:100%;padding:8px;background:#272727;color:#f1f1f1;border:1px solid #3f3f3f;border-radius:6px;font-size:13px;cursor:pointer';
 
     captions.forEach((track, i) => {
         const opt = document.createElement('option');
@@ -129,6 +153,10 @@
         const isAuto = track.kind === 'asr';
         const label = track.name?.simpleText || track.languageCode;
         opt.textContent = label + (isAuto ? ' (auto-generated)' : '');
+        // Default to English if available
+        if (track.languageCode === 'en' && !isAuto) {
+            opt.selected = true;
+        }
         langSelect.appendChild(opt);
     });
 
@@ -136,107 +164,106 @@
     langSection.appendChild(langSelect);
     overlay.appendChild(langSection);
 
-    // Instructions
-    const instructDiv = document.createElement('div');
-    instructDiv.style.cssText = 'background:#1a1a2e;border:1px solid #3f3f3f;border-radius:6px;padding:12px;margin-bottom:16px';
-
-    const instructTitle = document.createElement('div');
-    instructTitle.textContent = 'Instructions:';
-    instructTitle.style.cssText = 'color:#fbbf24;font-weight:600;margin-bottom:8px';
-    instructDiv.appendChild(instructTitle);
-
-    const steps = [
-        '1. Open DevTools (F12 or Cmd+Option+I)',
-        '2. Go to Network tab',
-        '3. Filter by "timedtext"',
-        '4. Click "Show transcript" on the video',
-        '5. Click the timedtext request → Response tab',
-        '6. Copy the JSON and paste below'
-    ];
-
-    steps.forEach(step => {
-        const stepDiv = document.createElement('div');
-        stepDiv.textContent = step;
-        stepDiv.style.cssText = 'color:#aaa;font-size:12px;margin-bottom:4px';
-        instructDiv.appendChild(stepDiv);
-    });
-
-    overlay.appendChild(instructDiv);
-
-    // Paste area
-    const pasteLabel = document.createElement('div');
-    pasteLabel.textContent = 'Paste JSON here:';
-    pasteLabel.style.cssText = 'color:#aaa;font-size:12px;margin-bottom:6px';
-    overlay.appendChild(pasteLabel);
-
-    const pasteArea = document.createElement('textarea');
-    pasteArea.placeholder = 'Paste the timedtext JSON response here...';
-    pasteArea.style.cssText = 'width:100%;height:100px;background:#1a1a1a;color:#4ade80;border:1px solid #3f3f3f;border-radius:6px;padding:10px;font-family:monospace;font-size:11px;resize:vertical;box-sizing:border-box;margin-bottom:12px';
-    overlay.appendChild(pasteArea);
-
-    // Buttons
+    // Buttons row
     const btnRow = document.createElement('div');
-    btnRow.style.cssText = 'display:flex;gap:10px';
+    btnRow.style.cssText = 'display:flex;gap:10px;margin-bottom:12px';
 
-    const validateBtn = document.createElement('button');
-    validateBtn.textContent = 'Validate & Format';
-    validateBtn.style.cssText = 'flex:1;padding:10px;background:#272727;color:#f1f1f1;border:1px solid #3f3f3f;border-radius:6px;font-size:14px;cursor:pointer';
+    // Manual fetch button
+    const fetchBtn = document.createElement('button');
+    fetchBtn.textContent = 'Fetch Manually';
+    fetchBtn.style.cssText = 'flex:1;padding:10px;background:#272727;color:#f1f1f1;border:1px solid #3f3f3f;border-radius:6px;font-size:14px;cursor:pointer';
 
-    const copyBtn = document.createElement('button');
-    copyBtn.textContent = 'Copy JSON';
-    copyBtn.style.cssText = 'flex:1;padding:10px;background:#3ea6ff;color:#0f0f0f;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer';
+    // Open app button (initially hidden)
+    const openAppBtn = document.createElement('button');
+    openAppBtn.textContent = 'Open App';
+    openAppBtn.style.cssText = 'flex:1;padding:10px;background:#3ea6ff;color:#0f0f0f;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;display:none';
 
-    btnRow.appendChild(validateBtn);
-    btnRow.appendChild(copyBtn);
+    btnRow.appendChild(fetchBtn);
+    btnRow.appendChild(openAppBtn);
     overlay.appendChild(btnRow);
 
-    // Status display
-    const statusDiv = document.createElement('div');
-    statusDiv.style.cssText = 'margin-top:12px;padding:10px;border-radius:6px;font-size:12px;display:none';
-    overlay.appendChild(statusDiv);
+    // Help text
+    const helpDiv = document.createElement('div');
+    helpDiv.style.cssText = 'color:#6b7280;font-size:11px;text-align:center';
+    helpDiv.textContent = 'If CC was already on, use "Fetch Manually" or toggle CC off then on.';
+    overlay.appendChild(helpDiv);
 
     // Add overlay to page
     document.body.appendChild(overlay);
 
-    // Validate button handler
-    validateBtn.onclick = function() {
-        try {
-            const json = JSON.parse(pasteArea.value);
-            const formatted = JSON.stringify(json, null, 2);
-            pasteArea.value = formatted;
+    // ========== CAPTURE HANDLER ==========
+    function onTranscriptCaptured(rawJson, parsed) {
+        capturedTranscript = rawJson;
 
-            const events = json.events || [];
-            const segments = events.filter(e => e.segs).length;
+        // Update status
+        const eventCount = parsed.events?.length || 0;
+        const textEvents = parsed.events?.filter(e => e.segs).length || 0;
+        const sizeKB = (rawJson.length / 1024).toFixed(1);
 
-            statusDiv.style.display = 'block';
-            statusDiv.style.background = '#052e16';
-            statusDiv.style.border = '1px solid #22c55e';
-            statusDiv.style.color = '#4ade80';
-            statusDiv.textContent = 'Valid JSON: ' + events.length + ' events, ' + segments + ' with text, ' + (formatted.length / 1024).toFixed(1) + ' KB';
-        } catch (e) {
-            statusDiv.style.display = 'block';
-            statusDiv.style.background = '#450a0a';
-            statusDiv.style.border = '1px solid #dc2626';
-            statusDiv.style.color = '#fca5a5';
-            statusDiv.textContent = 'Invalid JSON: ' + e.message;
-        }
-    };
+        statusDiv.style.borderColor = '#22c55e';
+        statusDiv.style.background = '#052e16';
+        statusDiv.innerHTML = '<div style="font-size:24px;margin-bottom:8px">✅</div>' +
+            '<div style="color:#4ade80;font-weight:600">Transcript Captured!</div>' +
+            '<div style="color:#6b7280;font-size:12px;margin-top:4px">' + textEvents + ' segments, ' + sizeKB + ' KB</div>';
 
-    // Copy button handler
-    copyBtn.onclick = function() {
-        if (!pasteArea.value.trim()) {
-            alert('Nothing to copy');
+        // Copy to clipboard
+        navigator.clipboard.writeText(rawJson).then(() => {
+            statusDiv.innerHTML += '<div style="color:#4ade80;font-size:11px;margin-top:8px">📋 Copied to clipboard</div>';
+        }).catch(err => {
+            statusDiv.innerHTML += '<div style="color:#fca5a5;font-size:11px;margin-top:8px">⚠️ Clipboard copy failed</div>';
+        });
+
+        // Show open app button
+        openAppBtn.style.display = 'block';
+        fetchBtn.style.display = 'none';
+    }
+
+    // ========== MANUAL FETCH ==========
+    fetchBtn.onclick = async function() {
+        const selectedIndex = parseInt(langSelect.value);
+        const track = captions[selectedIndex];
+
+        if (!track || !track.baseUrl) {
+            alert('No caption URL available for this language.');
             return;
         }
-        navigator.clipboard.writeText(pasteArea.value).then(() => {
-            copyBtn.textContent = 'Copied!';
-            copyBtn.style.background = '#22c55e';
-            setTimeout(() => {
-                copyBtn.textContent = 'Copy JSON';
-                copyBtn.style.background = '#3ea6ff';
-            }, 2000);
-        }).catch(err => {
-            alert('Failed to copy: ' + err.message);
-        });
+
+        fetchBtn.textContent = 'Fetching...';
+        fetchBtn.disabled = true;
+
+        try {
+            const response = await fetch(track.baseUrl);
+            const text = await response.text();
+
+            if (text && text.length > 100) {
+                const json = JSON.parse(text);
+                if (json.events) {
+                    onTranscriptCaptured(text, json);
+                    return;
+                }
+            }
+
+            throw new Error('Empty or invalid response');
+        } catch (err) {
+            statusDiv.style.borderColor = '#dc2626';
+            statusDiv.style.background = '#450a0a';
+            statusDiv.innerHTML = '<div style="font-size:24px;margin-bottom:8px">❌</div>' +
+                '<div style="color:#fca5a5">Fetch failed</div>' +
+                '<div style="color:#6b7280;font-size:12px;margin-top:4px">Try toggling CC on the video instead</div>';
+
+            fetchBtn.textContent = 'Fetch Manually';
+            fetchBtn.disabled = false;
+        }
     };
+
+    // ========== OPEN APP ==========
+    openAppBtn.onclick = function() {
+        // For now, just show instructions
+        // In production, this would open the app URL
+        alert('Transcript copied to clipboard!\n\nOpen your Transcript Cleaner app and paste the JSON.');
+    };
+
+    // ========== START INTERCEPTION ==========
+    installXHRInterceptor(onTranscriptCaptured);
+
 })();
