@@ -95,10 +95,25 @@ When the app is opened with `?auto=1` parameter (from bookmarklet's "Open App" b
 
 ### Updating the Bookmarklet
 
-When modifying `bookmarklet.js`:
-1. Edit `bookmarklet.js` (readable source)
-2. **Also update** the minified version embedded in `index.html` (in `bookmarkletInstaller()`)
-3. Commit and push - GitHub Pages will deploy automatically
+**IMPORTANT: Keep Both Files in Sync!**
+
+The bookmarklet code exists in TWO places that must stay synchronized:
+
+| File | Description |
+|------|-------------|
+| `bookmarklet.js` | Readable source code with comments |
+| `index.html` → `bookmarkletInstaller()` | Minified version users drag to bookmarks bar |
+
+**When modifying bookmarklet logic:**
+
+1. Edit `bookmarklet.js` (readable source with full comments)
+2. **MUST ALSO** update the minified `const code = \`javascript:...\`` in `index.html`
+3. The minified version in index.html is what users actually get
+4. Commit and push - deployment is automatic
+
+**Failure to sync both files** will result in:
+- Users getting outdated bookmarklet behavior
+- Bugs that appear "fixed" in source but persist for users
 
 ### Testing
 
@@ -165,6 +180,7 @@ CREATE TABLE transcripts (
     channel_name TEXT,
     video_url TEXT,
     duration_seconds INTEGER,
+    publish_date TEXT,           -- YouTube publish date
     captured_at TEXT DEFAULT (datetime('now')),
     raw_json TEXT,
     clean_text TEXT,

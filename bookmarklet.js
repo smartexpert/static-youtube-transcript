@@ -32,13 +32,13 @@
     }
 
     // Check if we're on a video page
-    const videoId = new URLSearchParams(window.location.search).get('v');
+    let videoId = new URLSearchParams(window.location.search).get('v');
     if (!videoId) {
         alert('Please navigate to a YouTube video page.');
         return;
     }
 
-    // Try to find ytInitialPlayerResponse
+    // Try to find ytInitialPlayerResponse (for captions data)
     let playerResponse = null;
     if (window.ytInitialPlayerResponse) {
         playerResponse = window.ytInitialPlayerResponse;
@@ -49,33 +49,70 @@
         return;
     }
 
-    // Extract video metadata
-    const videoDetails = playerResponse.videoDetails || {};
-    const microformat = playerResponse.microformat?.playerMicroformatRenderer || {};
+    // ========== GET CURRENT METADATA ==========
+    // This function gets FRESH metadata for the currently playing video
+    // YouTube's SPA navigation doesn't update ytInitialPlayerResponse,
+    // but the player element always has current data
+    function getCurrentMetadata() {
+        // Always get fresh videoId from URL
+        const currentVideoId = new URLSearchParams(window.location.search).get('v');
 
-    const metadata = {
-        videoId: videoId,
-        title: videoDetails.title || document.title.replace(' - YouTube', ''),
-        channelName: videoDetails.author || microformat.ownerChannelName || '',
-        channelId: videoDetails.channelId || '',
-        durationSeconds: parseInt(videoDetails.lengthSeconds) || null,
-        viewCount: parseInt(videoDetails.viewCount) || null,
-        publishDate: microformat.publishDate || '',
-        category: microformat.category || '',
-        description: (videoDetails.shortDescription || '').substring(0, 500), // Truncate for URL
-        keywords: (videoDetails.keywords || []).slice(0, 10).join(',') // First 10 keywords
-    };
+        // Try to get data from the YouTube player (most reliable for current video)
+        const player = document.querySelector('#movie_player');
+        let playerData = null;
+        if (player && typeof player.getVideoData === 'function') {
+            try {
+                playerData = player.getVideoData();
+                log('Got player data:', playerData);
+            } catch (e) {
+                log('Failed to get player data:', e);
+            }
+        }
 
-    log('Extracted metadata:', metadata);
+        // Try to get duration from player
+        let duration = null;
+        if (player && typeof player.getDuration === 'function') {
+            try {
+                duration = Math.floor(player.getDuration());
+            } catch (e) {}
+        }
 
-    // For backward compatibility
-    const title = metadata.title;
+        // Build metadata from best available sources
+        const meta = {
+            videoId: currentVideoId,
+            title: playerData?.title || document.title.replace(' - YouTube', ''),
+            channelName: playerData?.author || '',
+            durationSeconds: duration || null,
+            // publishDate requires ytInitialPlayerResponse which may be stale
+            // We'll include it if videoId matches, otherwise omit
+            publishDate: ''
+        };
 
-    // Extract caption tracks
+        // Only use ytInitialPlayerResponse data if it matches current video
+        if (playerResponse?.videoDetails?.videoId === currentVideoId) {
+            const microformat = playerResponse.microformat?.playerMicroformatRenderer || {};
+            meta.publishDate = microformat.publishDate || '';
+            if (!meta.channelName) {
+                meta.channelName = playerResponse.videoDetails.author || '';
+            }
+            if (!meta.durationSeconds) {
+                meta.durationSeconds = parseInt(playerResponse.videoDetails.lengthSeconds) || null;
+            }
+        }
+
+        log('Current metadata:', meta);
+        return meta;
+    }
+
+    // Get initial metadata for display
+    let metadata = getCurrentMetadata();
+    let title = metadata.title;
+
+    // Extract caption tracks (these may be stale but still work for manual fetch)
     const captions = playerResponse.captions?.playerCaptionsTracklistRenderer?.captionTracks;
 
     if (!captions || captions.length === 0) {
-        alert('No captions available for this video.');
+        alert('No captions available for this video. Try refreshing the page.');
         return;
     }
 
@@ -307,6 +344,18 @@
     function onTranscriptCaptured(rawJson, parsed) {
         capturedTranscript = rawJson;
 
+        // Refresh metadata to get current video info
+        metadata = getCurrentMetadata();
+        title = metadata.title;
+
+        // Update the title display in the overlay
+        titleDiv.textContent = '';
+        const newTitleLabel = document.createElement('strong');
+        newTitleLabel.style.color = '#f1f1f1';
+        newTitleLabel.textContent = 'Video: ';
+        titleDiv.appendChild(newTitleLabel);
+        titleDiv.appendChild(document.createTextNode(title.substring(0, 50) + (title.length > 50 ? '...' : '')));
+
         // Update status
         const textEvents = parsed.events?.filter(e => e.segs).length || 0;
         const sizeKB = (rawJson.length / 1024).toFixed(1);
@@ -367,14 +416,16 @@
 
     // ========== OPEN APP ==========
     openAppBtn.onclick = function() {
+        // Get fresh metadata in case video changed
+        const currentMeta = getCurrentMetadata();
         // Build URL with metadata parameters
         const params = new URLSearchParams({
             auto: '1',
-            videoId: metadata.videoId,
-            title: metadata.title,
-            channel: metadata.channelName,
-            duration: metadata.durationSeconds || '',
-            publishDate: metadata.publishDate || ''
+            videoId: currentMeta.videoId,
+            title: currentMeta.title,
+            channel: currentMeta.channelName,
+            duration: currentMeta.durationSeconds || '',
+            publishDate: currentMeta.publishDate || ''
         });
         // Open app with metadata
         window.open('https://youtube-transcript-4l9.pages.dev/?' + params.toString(), '_blank');
