@@ -7,6 +7,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jq-web@0.5.1/jq.wasm.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.min.js"></script>
+    <script src="js/db.js"></script>
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -127,7 +129,24 @@
                 readonly
                 class="w-full h-48 rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-900 resize-y"
             ></textarea>
-            <div class="mt-4 flex justify-end">
+            <div class="mt-4 flex justify-end gap-3">
+                <button
+                    @click="saveToLibrary()"
+                    :disabled="!isDbReady || saveStatus === 'Saving...'"
+                    class="inline-flex items-center justify-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:opacity-50 disabled:pointer-events-none transition-colors"
+                >
+                    <template x-if="saveStatus === 'Saved!'">
+                        <svg class="w-4 h-4 mr-2 text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                        </svg>
+                    </template>
+                    <template x-if="saveStatus !== 'Saved!'">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/>
+                        </svg>
+                    </template>
+                    <span x-text="saveStatus || 'Save to Library'"></span>
+                </button>
                 <button
                     @click="copyToClipboard()"
                     class="inline-flex items-center justify-center rounded-md border border-slate-800 bg-transparent px-4 py-2 text-sm font-medium text-slate-50 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-900 transition-colors"
@@ -144,6 +163,106 @@
                     </template>
                     <span x-text="copied ? 'Copied!' : 'Copy to Clipboard'"></span>
                 </button>
+            </div>
+        </div>
+
+        <!-- Transcript Library Section -->
+        <div x-data="transcriptLibrary()" x-show="isDbReady" class="mt-8 rounded-lg border border-slate-800 bg-slate-900 p-6 shadow-sm">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-semibold text-slate-50">Transcript Library</h2>
+                <div class="flex gap-2">
+                    <button
+                        @click="refreshList()"
+                        class="text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                    >
+                        Refresh
+                    </button>
+                    <button
+                        @click="showExportImport = !showExportImport"
+                        class="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                    >
+                        Export/Import
+                    </button>
+                </div>
+            </div>
+
+            <!-- Export/Import Panel -->
+            <div x-show="showExportImport" x-transition class="mb-4 p-4 rounded-md bg-slate-800 border border-slate-700">
+                <div class="flex gap-3 flex-wrap">
+                    <button
+                        @click="exportJson()"
+                        class="text-xs px-3 py-1.5 rounded bg-slate-700 text-slate-200 hover:bg-slate-600 transition-colors"
+                    >
+                        Export as JSON
+                    </button>
+                    <button
+                        @click="exportSqlite()"
+                        class="text-xs px-3 py-1.5 rounded bg-slate-700 text-slate-200 hover:bg-slate-600 transition-colors"
+                    >
+                        Export as SQLite
+                    </button>
+                    <label class="text-xs px-3 py-1.5 rounded bg-slate-700 text-slate-200 hover:bg-slate-600 transition-colors cursor-pointer">
+                        Import JSON
+                        <input type="file" accept=".json" @change="importJson($event)" class="hidden">
+                    </label>
+                    <label class="text-xs px-3 py-1.5 rounded bg-slate-700 text-slate-200 hover:bg-slate-600 transition-colors cursor-pointer">
+                        Import SQLite
+                        <input type="file" accept=".db,.sqlite" @change="importSqlite($event)" class="hidden">
+                    </label>
+                </div>
+                <p class="text-xs text-slate-500 mt-2" x-text="exportImportStatus"></p>
+            </div>
+
+            <!-- Stats -->
+            <div class="mb-4 text-xs text-slate-400">
+                <span x-text="stats.total_transcripts"></span> transcripts,
+                <span x-text="stats.total_words?.toLocaleString() || 0"></span> total words
+            </div>
+
+            <!-- Search -->
+            <div class="mb-4">
+                <input
+                    type="text"
+                    x-model="searchQuery"
+                    @input="search()"
+                    placeholder="Search transcripts..."
+                    class="w-full px-3 py-2 rounded-md border border-slate-700 bg-slate-800 text-slate-50 text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-400"
+                >
+            </div>
+
+            <!-- Transcript List -->
+            <div class="space-y-2 max-h-64 overflow-y-auto">
+                <template x-if="transcripts.length === 0">
+                    <p class="text-sm text-slate-500 text-center py-4">No transcripts saved yet</p>
+                </template>
+                <template x-for="transcript in transcripts" :key="transcript.video_id">
+                    <div class="p-3 rounded-md bg-slate-800 border border-slate-700 hover:border-slate-600 transition-colors">
+                        <div class="flex justify-between items-start">
+                            <div class="flex-1 min-w-0">
+                                <h3 class="text-sm font-medium text-slate-200 truncate" x-text="transcript.title || 'Untitled'"></h3>
+                                <p class="text-xs text-slate-500 mt-1">
+                                    <span x-text="transcript.word_count?.toLocaleString() || 0"></span> words
+                                    <span class="mx-1">•</span>
+                                    <span x-text="formatDate(transcript.captured_at)"></span>
+                                </p>
+                            </div>
+                            <div class="flex gap-2 ml-2">
+                                <button
+                                    @click="loadTranscript(transcript.video_id)"
+                                    class="text-xs text-blue-400 hover:text-blue-300"
+                                >
+                                    Load
+                                </button>
+                                <button
+                                    @click="deleteTranscript(transcript.video_id)"
+                                    class="text-xs text-red-400 hover:text-red-300"
+                                >
+                                    Delete
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </template>
             </div>
         </div>
 
@@ -190,6 +309,133 @@
     </div>
 
     <script>
+        function transcriptLibrary() {
+            return {
+                isDbReady: false,
+                transcripts: [],
+                stats: { total_transcripts: 0, total_words: 0 },
+                searchQuery: '',
+                showExportImport: false,
+                exportImportStatus: '',
+
+                init() {
+                    this.waitForDb();
+                },
+
+                async waitForDb() {
+                    const check = () => {
+                        if (window.TranscriptDB) {
+                            TranscriptDB.init().then(() => {
+                                this.isDbReady = true;
+                                this.refreshList();
+                            }).catch(e => {
+                                console.error('[Library] DB init failed:', e);
+                            });
+                        } else {
+                            setTimeout(check, 100);
+                        }
+                    };
+                    check();
+                },
+
+                refreshList() {
+                    if (!this.isDbReady) return;
+                    this.transcripts = TranscriptDB.getAll();
+                    this.stats = TranscriptDB.getStats();
+                },
+
+                search() {
+                    if (!this.searchQuery.trim()) {
+                        this.refreshList();
+                        return;
+                    }
+                    this.transcripts = TranscriptDB.search(this.searchQuery);
+                },
+
+                loadTranscript(videoId) {
+                    const transcript = TranscriptDB.get(videoId);
+                    if (transcript) {
+                        // Dispatch event to main app
+                        window.dispatchEvent(new CustomEvent('load-transcript', {
+                            detail: {
+                                rawJson: transcript.raw_json,
+                                cleanText: transcript.clean_text,
+                                title: transcript.title
+                            }
+                        }));
+                    }
+                },
+
+                async deleteTranscript(videoId) {
+                    if (!confirm('Delete this transcript?')) return;
+                    await TranscriptDB.delete(videoId);
+                    this.refreshList();
+                },
+
+                formatDate(dateStr) {
+                    if (!dateStr) return '';
+                    const date = new Date(dateStr);
+                    return date.toLocaleDateString();
+                },
+
+                exportJson() {
+                    const data = TranscriptDB.exportJson();
+                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                    this.downloadBlob(blob, 'transcripts.json');
+                    this.exportImportStatus = 'Exported JSON file';
+                    setTimeout(() => { this.exportImportStatus = ''; }, 2000);
+                },
+
+                exportSqlite() {
+                    const data = TranscriptDB.exportFile();
+                    const blob = new Blob([data], { type: 'application/x-sqlite3' });
+                    this.downloadBlob(blob, 'transcripts.db');
+                    this.exportImportStatus = 'Exported SQLite file';
+                    setTimeout(() => { this.exportImportStatus = ''; }, 2000);
+                },
+
+                downloadBlob(blob, filename) {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                },
+
+                async importJson(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+                    try {
+                        const text = await file.text();
+                        const data = JSON.parse(text);
+                        const result = await TranscriptDB.importJson(data);
+                        this.exportImportStatus = `Imported ${result.imported} transcripts`;
+                        this.refreshList();
+                        setTimeout(() => { this.exportImportStatus = ''; }, 3000);
+                    } catch (e) {
+                        this.exportImportStatus = 'Import failed: ' + e.message;
+                    }
+                    event.target.value = '';
+                },
+
+                async importSqlite(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+                    try {
+                        const buffer = await file.arrayBuffer();
+                        await TranscriptDB.importFile(buffer);
+                        this.exportImportStatus = 'Imported SQLite database';
+                        this.refreshList();
+                        setTimeout(() => { this.exportImportStatus = ''; }, 3000);
+                    } catch (e) {
+                        this.exportImportStatus = 'Import failed: ' + e.message;
+                    }
+                    event.target.value = '';
+                }
+            };
+        }
+
         function bookmarkletInstaller() {
             return {
                 copied: false,
@@ -219,8 +465,11 @@
                 error: '',
                 isProcessing: false,
                 isJqReady: false,
+                isDbReady: false,
                 copied: false,
                 pasteStatus: '',
+                saveStatus: '',
+                videoMetadata: null, // { videoId, title, channelName, videoUrl }
 
                 get wordCount() {
                     return this.output ? this.output.trim().split(/\s+/).filter(Boolean).length : 0;
@@ -233,6 +482,26 @@
                 init() {
                     // Wait for jq-web to be ready
                     this.waitForJq();
+                    // Initialize database
+                    this.initDatabase();
+                    // Listen for load-transcript events from library
+                    window.addEventListener('load-transcript', (e) => {
+                        this.input = e.detail.rawJson;
+                        this.output = e.detail.cleanText;
+                        // Scroll to top to show loaded transcript
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                    });
+                },
+
+                async initDatabase() {
+                    try {
+                        await TranscriptDB.init();
+                        this.isDbReady = true;
+                        console.log('[App] Database initialized');
+                    } catch (e) {
+                        console.error('[App] Database initialization failed:', e);
+                        // App still works without database
+                    }
                 },
 
                 async waitForJq() {
@@ -371,6 +640,64 @@
                     } catch (e) {
                         this.error = 'Clipboard access denied. Please paste manually (Ctrl/Cmd+V).';
                         this.pasteStatus = '';
+                    }
+                },
+
+                async saveToLibrary() {
+                    if (!this.isDbReady) {
+                        this.error = 'Database not ready. Please wait or reload the page.';
+                        return;
+                    }
+
+                    if (!this.output) {
+                        this.error = 'No transcript to save. Process a transcript first.';
+                        return;
+                    }
+
+                    this.saveStatus = 'Saving...';
+
+                    try {
+                        // Try to extract video metadata from the input JSON
+                        let videoId = 'unknown_' + Date.now();
+                        let title = 'Untitled Video';
+                        let videoUrl = '';
+                        let language = 'en';
+                        let isAutoGenerated = false;
+
+                        // Use metadata if available (set by bookmarklet via URL params or postMessage)
+                        if (this.videoMetadata) {
+                            videoId = this.videoMetadata.videoId || videoId;
+                            title = this.videoMetadata.title || title;
+                            videoUrl = this.videoMetadata.videoUrl || videoUrl;
+                        }
+
+                        // Check URL params for metadata
+                        const params = new URLSearchParams(window.location.search);
+                        if (params.get('videoId')) videoId = params.get('videoId');
+                        if (params.get('title')) title = decodeURIComponent(params.get('title'));
+                        if (params.get('url')) videoUrl = decodeURIComponent(params.get('url'));
+
+                        await TranscriptDB.save({
+                            videoId,
+                            title,
+                            channelName: this.videoMetadata?.channelName || '',
+                            videoUrl,
+                            durationSeconds: null,
+                            rawJson: this.input,
+                            cleanText: this.output,
+                            language,
+                            isAutoGenerated,
+                            wordCount: this.wordCount
+                        });
+
+                        this.saveStatus = 'Saved!';
+                        setTimeout(() => {
+                            this.saveStatus = '';
+                        }, 2000);
+                    } catch (e) {
+                        console.error('[App] Save failed:', e);
+                        this.error = 'Failed to save transcript: ' + e.message;
+                        this.saveStatus = '';
                     }
                 }
             };

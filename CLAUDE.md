@@ -2,20 +2,26 @@
 
 ## Overview
 
-A static HTML app that extracts and cleans YouTube transcript data. Consists of two components:
+A static HTML app that extracts and cleans YouTube transcript data with local SQLite storage. Consists of three main components:
 
 1. **Main App** (`index.html`) - Processes raw timedtext JSON into clean readable text using jq-web WASM
 2. **Bookmarklet** (`bookmarklet.js`) - Captures transcript data directly from YouTube pages
+3. **Database** (`js/db.js`) - SQLite storage using sql.js with IndexedDB persistence
 
 ## File Structure
 
 ```
-├── index.html              # Main app (Alpine.js + Tailwind + jq-web)
+├── index.html              # Main app (Alpine.js + Tailwind + jq-web + sql.js)
 ├── bookmarklet.js          # Source bookmarklet code (readable version)
+├── _headers                # Cloudflare Pages headers (COOP/COEP for SharedArrayBuffer)
+├── js/
+│   └── db.js               # Database module (sql.js + IndexedDB)
 ├── docs/
 │   ├── SPEC.md             # Original app specification
 │   ├── RESEARCH.md         # Technical research on YouTube APIs
-│   └── BOOKMARKLET_RESEARCH.md  # Approach comparison
+│   ├── BOOKMARKLET_RESEARCH.md      # Approach comparison
+│   ├── BOOKMARKLET_AUTOMATION_GUIDE.md  # LLM guide for bookmarklet automation
+│   └── SQLITE_BROWSER_RESEARCH.md   # Browser SQLite feasibility research
 ```
 
 ## Key Technical Details
@@ -122,8 +128,84 @@ The app uses this JQ query to extract clean text:
 [.[] | if type == "object" and has("events") then .events[] else . end | .segs | select(.) | .[].utf8 | gsub("\\n"; " ")] | join("")
 ```
 
+## SQLite Storage
+
+### Architecture
+
+The app uses **sql.js** (SQLite compiled to WebAssembly) with IndexedDB persistence:
+
+- Database is stored in browser's IndexedDB as a single binary blob
+- Loads entirely into memory on startup (~instant for typical usage)
+- Automatically saves after each write operation
+- No server required - fully client-side
+
+### Database API (`window.TranscriptDB`)
+
+```javascript
+TranscriptDB.init()              // Initialize database
+TranscriptDB.save(data)          // Save transcript
+TranscriptDB.get(videoId)        // Get by video ID
+TranscriptDB.getAll(limit, offset)  // List all transcripts
+TranscriptDB.delete(videoId)     // Delete transcript
+TranscriptDB.search(query)       // Full-text search
+TranscriptDB.getStats()          // Get statistics
+TranscriptDB.exportJson()        // Export as JSON
+TranscriptDB.exportFile()        // Export as SQLite file
+TranscriptDB.importJson(data)    // Import from JSON
+TranscriptDB.importFile(buffer)  // Import SQLite file
+```
+
+### Schema
+
+```sql
+CREATE TABLE transcripts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id TEXT NOT NULL UNIQUE,
+    title TEXT,
+    channel_name TEXT,
+    video_url TEXT,
+    duration_seconds INTEGER,
+    captured_at TEXT DEFAULT (datetime('now')),
+    raw_json TEXT,
+    clean_text TEXT,
+    language TEXT,
+    is_auto_generated INTEGER DEFAULT 0,
+    word_count INTEGER,
+    summary TEXT,
+    summary_generated_at TEXT,
+    tags TEXT
+);
+```
+
+### COOP/COEP Headers
+
+The `_headers` file configures Cloudflare Pages to send required security headers:
+
+```
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
+These are needed for SharedArrayBuffer support (used by some WASM implementations).
+
 ## Deployment
 
-- Hosted on GitHub Pages
-- Push to `main` branch triggers automatic deployment
-- Users copy bookmarklet from the deployed page
+### Cloudflare Pages (Recommended)
+
+1. Connect your GitHub repo to Cloudflare Pages
+2. Settings:
+   - Build command: (leave empty)
+   - Build output directory: `/` (root)
+3. Push to `main` branch triggers automatic deployment
+4. The `_headers` file automatically applies COOP/COEP headers
+
+### Alternative: GitHub Pages
+
+GitHub Pages doesn't support custom headers natively. Options:
+- Use `coi-serviceworker` to inject headers client-side
+- Accept that some WASM features may not work
+
+### Users
+
+- Copy bookmarklet from the deployed page
+- All transcript data stored locally in their browser
