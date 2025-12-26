@@ -348,9 +348,7 @@
 
     // ========== OPEN APP ==========
     openAppBtn.onclick = function() {
-        // For now, just show instructions
-        // In production, this would open the app URL
-        alert('Transcript copied to clipboard!\n\nOpen your Transcript Cleaner app and paste the JSON.');
+        window.open('https://smartexpert.github.io/static-youtube-transcript/', '_blank');
     };
 
     // ========== START INTERCEPTION ==========
