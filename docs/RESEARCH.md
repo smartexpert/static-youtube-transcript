@@ -120,6 +120,50 @@ XMLHttpRequest.prototype.send = function(body) {
 
 3. **Timing dependency** - XHR interception must be installed BEFORE user enables CC, otherwise the request is missed
 
+4. **Trusted Types CSP** - YouTube enforces Trusted Types policy that blocks `innerHTML` assignments
+
+---
+
+## Additional Findings (Implementation Phase)
+
+### 5. Trusted Types CSP Policy
+
+YouTube's Content Security Policy requires "TrustedHTML" for innerHTML assignments. Using innerHTML throws:
+
+```
+This document requires 'TrustedHTML' assignment.
+Uncaught TypeError: Failed to set the 'innerHTML' property on 'Element'
+```
+
+**Solution:** Use DOM methods instead:
+```javascript
+// Instead of: element.innerHTML = '<div>text</div>';
+const div = document.createElement('div');
+div.textContent = 'text';
+element.appendChild(div);
+```
+
+### 6. Fetch API Also Needed
+
+While initial research showed XHR, YouTube may use Fetch API in some cases. The bookmarklet now intercepts both:
+
+```javascript
+// XHR interception
+XMLHttpRequest.prototype.open = function(method, url, ...rest) { ... };
+XMLHttpRequest.prototype.send = function(body) { ... };
+
+// Fetch interception
+const originalFetch = window.fetch;
+window.fetch = async function(input, init) { ... };
+```
+
+### 7. Caption Caching
+
+YouTube caches caption data. If CC was previously enabled:
+- No new network request is made when toggling CC
+- User must toggle CC OFF then ON to trigger fresh request
+- Or use "Fetch Manually" with baseUrl from page data
+
 ---
 
 ## Recommended Implementation
