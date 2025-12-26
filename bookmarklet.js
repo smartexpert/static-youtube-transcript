@@ -95,32 +95,80 @@
         if (isIntercepting) return;
         isIntercepting = true;
 
+        console.log('[YT Transcript] XHR interceptor installed');
+
         const originalOpen = XMLHttpRequest.prototype.open;
         const originalSend = XMLHttpRequest.prototype.send;
 
         XMLHttpRequest.prototype.open = function(method, url, ...rest) {
             this._yt_url = url;
-            this._yt_isTimedText = url && url.includes('timedtext') && !url.includes('caps=');
+            // Check for timedtext URLs - be more lenient with the filter
+            this._yt_isTimedText = url && (url.includes('timedtext') || url.includes('api/timedtext'));
+            if (this._yt_isTimedText) {
+                console.log('[YT Transcript] Detected timedtext request:', url.substring(0, 100));
+            }
             return originalOpen.call(this, method, url, ...rest);
         };
 
         XMLHttpRequest.prototype.send = function(body) {
             if (this._yt_isTimedText) {
                 this.addEventListener('load', function() {
+                    console.log('[YT Transcript] timedtext response received, length:', this.responseText?.length || 0);
                     if (this.responseText && this.responseText.length > 100) {
                         try {
                             const json = JSON.parse(this.responseText);
                             if (json.events && json.events.length > 0) {
+                                console.log('[YT Transcript] Valid transcript captured!', json.events.length, 'events');
                                 onCapture(this.responseText, json);
+                            } else {
+                                console.log('[YT Transcript] JSON has no events:', Object.keys(json));
                             }
                         } catch (e) {
-                            // Not valid JSON, ignore
+                            console.log('[YT Transcript] Failed to parse JSON:', e.message);
                         }
                     }
                 });
             }
             return originalSend.call(this, body);
         };
+
+        // Also intercept fetch API in case YouTube uses it
+        const originalFetch = window.fetch;
+        window.fetch = async function(input, init) {
+            const url = typeof input === 'string' ? input : input.url;
+            const isTimedText = url && (url.includes('timedtext') || url.includes('api/timedtext'));
+
+            if (isTimedText) {
+                console.log('[YT Transcript] Detected timedtext fetch:', url.substring(0, 100));
+            }
+
+            const response = await originalFetch.call(this, input, init);
+
+            if (isTimedText) {
+                // Clone response so we can read it
+                const clone = response.clone();
+                clone.text().then(text => {
+                    console.log('[YT Transcript] fetch response received, length:', text?.length || 0);
+                    if (text && text.length > 100) {
+                        try {
+                            const json = JSON.parse(text);
+                            if (json.events && json.events.length > 0) {
+                                console.log('[YT Transcript] Valid transcript captured via fetch!', json.events.length, 'events');
+                                onCapture(text, json);
+                            }
+                        } catch (e) {
+                            console.log('[YT Transcript] Failed to parse fetch JSON:', e.message);
+                        }
+                    }
+                }).catch(err => {
+                    console.log('[YT Transcript] Failed to read fetch response:', err.message);
+                });
+            }
+
+            return response;
+        };
+
+        console.log('[YT Transcript] Fetch interceptor installed');
     }
 
     // ========== UI CREATION ==========
@@ -169,7 +217,7 @@
     const statusDiv = document.createElement('div');
     statusDiv.style.cssText = 'background:#1a1a2e;border:1px solid #3b82f6;border-radius:8px;padding:16px;margin-bottom:16px;text-align:center';
     // Initial state using DOM methods
-    updateStatus('⏳', 'Waiting for captions...', '#60a5fa', 'Click the CC button on the video');
+    updateStatus('⏳', 'Waiting for captions...', '#60a5fa', 'Turn CC OFF then ON again to capture');
     overlay.appendChild(statusDiv);
 
     // Language selector
