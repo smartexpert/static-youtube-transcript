@@ -154,9 +154,13 @@
                             <span class="text-slate-500">Video ID:</span>
                             <span class="text-slate-300 ml-1 font-mono" x-text="videoMetadata?.videoId || 'Unknown'"></span>
                         </div>
-                        <div x-show="videoMetadata?.publishDate" class="col-span-2">
+                        <div x-show="videoMetadata?.publishDate">
                             <span class="text-slate-500">Published:</span>
                             <span class="text-slate-300 ml-1" x-text="videoMetadata?.publishDate"></span>
+                        </div>
+                        <div x-show="videoMetadata?.capturedAt">
+                            <span class="text-slate-500">Captured:</span>
+                            <span class="text-slate-300 ml-1" x-text="formatDate(videoMetadata?.capturedAt)"></span>
                         </div>
                     </div>
                     <div class="mt-2" x-show="videoMetadata?.videoId && !videoMetadata.videoId.startsWith('unknown_')">
@@ -334,6 +338,10 @@
                                         <span class="text-slate-300 ml-1 font-mono" x-text="transcript.video_id"></span>
                                     </div>
                                     <div>
+                                        <span class="text-slate-500">Published:</span>
+                                        <span class="text-slate-300 ml-1" x-text="full?.publish_date || 'Unknown'"></span>
+                                    </div>
+                                    <div class="col-span-2">
                                         <span class="text-slate-500">Captured:</span>
                                         <span class="text-slate-300 ml-1" x-text="formatDate(transcript.captured_at)"></span>
                                     </div>
@@ -456,12 +464,17 @@
                 loadTranscript(videoId) {
                     const transcript = TranscriptDB.get(videoId);
                     if (transcript) {
-                        // Dispatch event to main app
+                        // Dispatch event to main app with full metadata
                         window.dispatchEvent(new CustomEvent('load-transcript', {
                             detail: {
                                 rawJson: transcript.raw_json,
                                 cleanText: transcript.clean_text,
-                                title: transcript.title
+                                videoId: transcript.video_id,
+                                title: transcript.title,
+                                channelName: transcript.channel_name,
+                                durationSeconds: transcript.duration_seconds,
+                                publishDate: transcript.publish_date,
+                                capturedAt: transcript.captured_at
                             }
                         }));
                     }
@@ -620,6 +633,12 @@
                     return `${mins}m ${secs}s`;
                 },
 
+                formatDate(dateStr) {
+                    if (!dateStr) return '';
+                    const date = new Date(dateStr);
+                    return date.toLocaleDateString();
+                },
+
                 init() {
                     // Capture metadata from URL params BEFORE they get cleaned up
                     this.captureMetadataFromUrl();
@@ -631,6 +650,16 @@
                     window.addEventListener('load-transcript', (e) => {
                         this.input = e.detail.rawJson;
                         this.output = e.detail.cleanText;
+                        // Update metadata from loaded transcript
+                        this.videoMetadata = {
+                            videoId: e.detail.videoId,
+                            title: e.detail.title || 'Untitled Video',
+                            channelName: e.detail.channelName || '',
+                            durationSeconds: e.detail.durationSeconds || null,
+                            publishDate: e.detail.publishDate || '',
+                            capturedAt: e.detail.capturedAt || null
+                        };
+                        this.showCurrentMetadata = false; // Collapse metadata panel
                         // Scroll to top to show loaded transcript
                         window.scrollTo({ top: 0, behavior: 'smooth' });
                     });
@@ -820,6 +849,7 @@
                         const title = meta.title || 'Untitled Video';
                         const channelName = meta.channelName || '';
                         const durationSeconds = meta.durationSeconds || null;
+                        const publishDate = meta.publishDate || null;
 
                         // Construct video URL from videoId
                         const videoUrl = videoId.startsWith('unknown_') ? '' : `https://www.youtube.com/watch?v=${videoId}`;
@@ -830,6 +860,7 @@
                             channelName,
                             videoUrl,
                             durationSeconds,
+                            publishDate,
                             rawJson: this.input,
                             cleanText: this.output,
                             language: 'en',
