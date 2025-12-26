@@ -13,9 +13,18 @@
  * Fallback: Manual fetch button if CC was already enabled
  *
  * Note: Uses DOM methods instead of innerHTML to comply with YouTube's Trusted Types CSP
+ *
+ * DEBUG MODE:
+ * To enable debug logging, change DEBUG to true below.
+ * This will log all XHR/Fetch interceptions to the console with '[YT Transcript]' prefix.
  */
 
 (function() {
+    // ========== DEBUG FLAG ==========
+    // Set to true to enable console logging for troubleshooting
+    const DEBUG = false;
+    const log = DEBUG ? console.log.bind(console, '[YT Transcript]') : () => {};
+
     // Check if we're on YouTube
     if (!window.location.hostname.includes('youtube.com')) {
         alert('This bookmarklet only works on YouTube video pages.');
@@ -95,7 +104,7 @@
         if (isIntercepting) return;
         isIntercepting = true;
 
-        console.log('[YT Transcript] XHR interceptor installed');
+        log('XHR interceptor installed');
 
         const originalOpen = XMLHttpRequest.prototype.open;
         const originalSend = XMLHttpRequest.prototype.send;
@@ -105,7 +114,7 @@
             // Check for timedtext URLs - be more lenient with the filter
             this._yt_isTimedText = url && (url.includes('timedtext') || url.includes('api/timedtext'));
             if (this._yt_isTimedText) {
-                console.log('[YT Transcript] Detected timedtext request:', url.substring(0, 100));
+                log('Detected timedtext request:', url.substring(0, 100));
             }
             return originalOpen.call(this, method, url, ...rest);
         };
@@ -113,18 +122,18 @@
         XMLHttpRequest.prototype.send = function(body) {
             if (this._yt_isTimedText) {
                 this.addEventListener('load', function() {
-                    console.log('[YT Transcript] timedtext response received, length:', this.responseText?.length || 0);
+                    log('timedtext response received, length:', this.responseText?.length || 0);
                     if (this.responseText && this.responseText.length > 100) {
                         try {
                             const json = JSON.parse(this.responseText);
                             if (json.events && json.events.length > 0) {
-                                console.log('[YT Transcript] Valid transcript captured!', json.events.length, 'events');
+                                log('Valid transcript captured!', json.events.length, 'events');
                                 onCapture(this.responseText, json);
                             } else {
-                                console.log('[YT Transcript] JSON has no events:', Object.keys(json));
+                                log('JSON has no events:', Object.keys(json));
                             }
                         } catch (e) {
-                            console.log('[YT Transcript] Failed to parse JSON:', e.message);
+                            log('Failed to parse JSON:', e.message);
                         }
                     }
                 });
@@ -139,7 +148,7 @@
             const isTimedText = url && (url.includes('timedtext') || url.includes('api/timedtext'));
 
             if (isTimedText) {
-                console.log('[YT Transcript] Detected timedtext fetch:', url.substring(0, 100));
+                log('Detected timedtext fetch:', url.substring(0, 100));
             }
 
             const response = await originalFetch.call(this, input, init);
@@ -148,27 +157,27 @@
                 // Clone response so we can read it
                 const clone = response.clone();
                 clone.text().then(text => {
-                    console.log('[YT Transcript] fetch response received, length:', text?.length || 0);
+                    log('fetch response received, length:', text?.length || 0);
                     if (text && text.length > 100) {
                         try {
                             const json = JSON.parse(text);
                             if (json.events && json.events.length > 0) {
-                                console.log('[YT Transcript] Valid transcript captured via fetch!', json.events.length, 'events');
+                                log('Valid transcript captured via fetch!', json.events.length, 'events');
                                 onCapture(text, json);
                             }
                         } catch (e) {
-                            console.log('[YT Transcript] Failed to parse fetch JSON:', e.message);
+                            log('Failed to parse fetch JSON:', e.message);
                         }
                     }
                 }).catch(err => {
-                    console.log('[YT Transcript] Failed to read fetch response:', err.message);
+                    log('Failed to read fetch response:', err.message);
                 });
             }
 
             return response;
         };
 
-        console.log('[YT Transcript] Fetch interceptor installed');
+        log('Fetch interceptor installed');
     }
 
     // ========== UI CREATION ==========

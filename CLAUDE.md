@@ -84,7 +84,22 @@ When modifying `bookmarklet.js`:
 
 - Cannot test with Playwright/automation - YouTube's bot detection returns empty responses
 - Must test in real browser manually
-- Debug logging uses `console.log('[YT Transcript]', ...)` prefix
+
+### Debug Mode
+
+Debug logging is controlled by a `DEBUG` flag. When enabled, logs appear in console with `[YT Transcript]` prefix.
+
+**To enable debug mode:**
+
+1. In `bookmarklet.js`: Change `const DEBUG = false;` to `const DEBUG = true;`
+2. In `index.html` (embedded bookmarklet): Change `const D=false` to `const D=true`
+3. Commit, push, and re-copy the bookmarklet
+
+**Debug output includes:**
+- XHR/Fetch interceptor installation confirmation
+- Detected timedtext requests (URL)
+- Response lengths
+- Capture success/failure with event counts
 
 ### JQ Query
 
