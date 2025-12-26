@@ -496,6 +496,8 @@
                 },
 
                 init() {
+                    // Capture metadata from URL params BEFORE they get cleaned up
+                    this.captureMetadataFromUrl();
                     // Wait for jq-web to be ready
                     this.waitForJq();
                     // Initialize database
@@ -507,6 +509,20 @@
                         // Scroll to top to show loaded transcript
                         window.scrollTo({ top: 0, behavior: 'smooth' });
                     });
+                },
+
+                captureMetadataFromUrl() {
+                    const params = new URLSearchParams(window.location.search);
+                    if (params.get('videoId')) {
+                        this.videoMetadata = {
+                            videoId: params.get('videoId'),
+                            title: params.get('title') || 'Untitled Video',
+                            channelName: params.get('channel') || '',
+                            durationSeconds: params.get('duration') ? parseInt(params.get('duration')) : null,
+                            publishDate: params.get('publishDate') || ''
+                        };
+                        console.log('[App] Captured metadata from URL:', this.videoMetadata);
+                    }
                 },
 
                 async initDatabase() {
@@ -673,15 +689,12 @@
                     this.saveStatus = 'Saving...';
 
                     try {
-                        // Get metadata from URL params (passed by bookmarklet)
-                        const params = new URLSearchParams(window.location.search);
-
-                        // Extract all available metadata
-                        const videoId = params.get('videoId') || 'unknown_' + Date.now();
-                        const title = params.get('title') || 'Untitled Video';
-                        const channelName = params.get('channel') || '';
-                        const durationSeconds = params.get('duration') ? parseInt(params.get('duration')) : null;
-                        const publishDate = params.get('publishDate') || '';
+                        // Use stored metadata (captured from URL on init)
+                        const meta = this.videoMetadata || {};
+                        const videoId = meta.videoId || 'unknown_' + Date.now();
+                        const title = meta.title || 'Untitled Video';
+                        const channelName = meta.channelName || '';
+                        const durationSeconds = meta.durationSeconds || null;
 
                         // Construct video URL from videoId
                         const videoUrl = videoId.startsWith('unknown_') ? '' : `https://www.youtube.com/watch?v=${videoId}`;
