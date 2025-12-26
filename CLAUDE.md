@@ -13,7 +13,7 @@ A static HTML app that extracts and cleans YouTube transcript data with local SQ
 ```
 ├── index.html              # Main app (Alpine.js + Tailwind + jq-web + sql.js)
 ├── bookmarklet.js          # Source bookmarklet code (readable version)
-├── _headers                # Cloudflare Pages headers (COOP/COEP for SharedArrayBuffer)
+├── _headers                # Cloudflare Pages headers (COOP)
 ├── js/
 │   └── db.js               # Database module (sql.js + IndexedDB)
 ├── docs/
@@ -177,16 +177,15 @@ CREATE TABLE transcripts (
 );
 ```
 
-### COOP/COEP Headers
+### COOP Header
 
-The `_headers` file configures Cloudflare Pages to send required security headers:
+The `_headers` file configures Cloudflare Pages to send the COOP header:
 
 ```
 Cross-Origin-Opener-Policy: same-origin
-Cross-Origin-Embedder-Policy: require-corp
 ```
 
-These are needed for SharedArrayBuffer support (used by some WASM implementations).
+Note: COEP (`require-corp`) was removed because Tailwind's CDN lacks CORS headers and would be blocked. sql.js with IndexedDB doesn't require SharedArrayBuffer, so this doesn't affect functionality.
 
 ## Deployment
 
@@ -197,7 +196,7 @@ These are needed for SharedArrayBuffer support (used by some WASM implementation
    - Build command: (leave empty)
    - Build output directory: `/` (root)
 3. Push to `main` branch triggers automatic deployment
-4. The `_headers` file automatically applies COOP/COEP headers
+4. The `_headers` file automatically applies security headers
 
 ### Alternative: GitHub Pages
 
