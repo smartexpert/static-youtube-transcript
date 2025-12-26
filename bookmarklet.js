@@ -348,7 +348,8 @@
 
     // ========== OPEN APP ==========
     openAppBtn.onclick = function() {
-        window.open('https://smartexpert.github.io/static-youtube-transcript/', '_blank');
+        // Open app with auto=1 to trigger auto-paste and process
+        window.open('https://smartexpert.github.io/static-youtube-transcript/?auto=1', '_blank');
     };
 
     // ========== START INTERCEPTION ==========
