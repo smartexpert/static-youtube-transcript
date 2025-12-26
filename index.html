@@ -123,6 +123,53 @@
                     <span x-text="wordCount"></span> words, <span x-text="charCount"></span> characters
                 </div>
             </div>
+
+            <!-- Current Video Metadata (collapsible) -->
+            <div x-show="videoMetadata" class="mb-4">
+                <button
+                    @click="showCurrentMetadata = !showCurrentMetadata"
+                    class="flex items-center gap-2 text-xs text-slate-400 hover:text-slate-300 transition-colors w-full"
+                >
+                    <svg class="w-3.5 h-3.5 transition-transform" :class="{ 'rotate-180': showCurrentMetadata }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                    <span>Video Info</span>
+                    <span class="text-slate-500" x-text="videoMetadata?.title ? '— ' + videoMetadata.title.substring(0, 40) + (videoMetadata.title.length > 40 ? '...' : '') : ''"></span>
+                </button>
+                <div x-show="showCurrentMetadata" x-transition class="mt-2 p-3 rounded-md bg-slate-800 border border-slate-700">
+                    <div class="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                            <span class="text-slate-500">Title:</span>
+                            <span class="text-slate-300 ml-1" x-text="videoMetadata?.title || 'Unknown'"></span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500">Channel:</span>
+                            <span class="text-slate-300 ml-1" x-text="videoMetadata?.channelName || 'Unknown'"></span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500">Duration:</span>
+                            <span class="text-slate-300 ml-1" x-text="formatDuration(videoMetadata?.durationSeconds) || 'Unknown'"></span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500">Video ID:</span>
+                            <span class="text-slate-300 ml-1 font-mono" x-text="videoMetadata?.videoId || 'Unknown'"></span>
+                        </div>
+                        <div x-show="videoMetadata?.publishDate" class="col-span-2">
+                            <span class="text-slate-500">Published:</span>
+                            <span class="text-slate-300 ml-1" x-text="videoMetadata?.publishDate"></span>
+                        </div>
+                    </div>
+                    <div class="mt-2" x-show="videoMetadata?.videoId && !videoMetadata.videoId.startsWith('unknown_')">
+                        <a :href="'https://www.youtube.com/watch?v=' + videoMetadata?.videoId" target="_blank" class="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                            </svg>
+                            Open on YouTube
+                        </a>
+                    </div>
+                </div>
+            </div>
+
             <textarea
                 id="output"
                 x-model="output"
@@ -236,8 +283,8 @@
                     <p class="text-sm text-slate-500 text-center py-4">No transcripts saved yet</p>
                 </template>
                 <template x-for="transcript in transcripts" :key="transcript.video_id">
-                    <div class="p-3 rounded-md bg-slate-800 border border-slate-700 hover:border-slate-600 transition-colors">
-                        <div class="flex justify-between items-start">
+                    <div class="rounded-md bg-slate-800 border border-slate-700 hover:border-slate-600 transition-colors overflow-hidden">
+                        <div class="p-3 flex justify-between items-start">
                             <div class="flex-1 min-w-0">
                                 <h3 class="text-sm font-medium text-slate-200 truncate" x-text="transcript.title || 'Untitled'"></h3>
                                 <p class="text-xs text-slate-500 mt-1">
@@ -247,6 +294,15 @@
                                 </p>
                             </div>
                             <div class="flex gap-2 ml-2">
+                                <button
+                                    @click="toggleExpanded(transcript.video_id)"
+                                    class="text-xs text-slate-400 hover:text-slate-300"
+                                    :class="{ 'text-slate-200': expandedId === transcript.video_id }"
+                                >
+                                    <svg class="w-4 h-4 transition-transform" :class="{ 'rotate-180': expandedId === transcript.video_id }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                                    </svg>
+                                </button>
                                 <button
                                     @click="loadTranscript(transcript.video_id)"
                                     class="text-xs text-blue-400 hover:text-blue-300"
@@ -261,6 +317,37 @@
                                 </button>
                             </div>
                         </div>
+                        <!-- Expandable Metadata -->
+                        <template x-if="expandedId === transcript.video_id">
+                            <div class="px-3 pb-3 pt-0 border-t border-slate-700 bg-slate-800/50" x-data="{ full: getFullTranscript(transcript.video_id) }">
+                                <div class="grid grid-cols-2 gap-2 text-xs mt-2">
+                                    <div>
+                                        <span class="text-slate-500">Channel:</span>
+                                        <span class="text-slate-300 ml-1" x-text="full?.channel_name || 'Unknown'"></span>
+                                    </div>
+                                    <div>
+                                        <span class="text-slate-500">Duration:</span>
+                                        <span class="text-slate-300 ml-1" x-text="formatDuration(full?.duration_seconds) || 'Unknown'"></span>
+                                    </div>
+                                    <div>
+                                        <span class="text-slate-500">Video ID:</span>
+                                        <span class="text-slate-300 ml-1 font-mono" x-text="transcript.video_id"></span>
+                                    </div>
+                                    <div>
+                                        <span class="text-slate-500">Captured:</span>
+                                        <span class="text-slate-300 ml-1" x-text="formatDate(transcript.captured_at)"></span>
+                                    </div>
+                                </div>
+                                <div class="mt-2" x-show="full?.video_url">
+                                    <a :href="full?.video_url" target="_blank" class="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1">
+                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                                        </svg>
+                                        Open on YouTube
+                                    </a>
+                                </div>
+                            </div>
+                        </template>
                     </div>
                 </template>
             </div>
@@ -326,9 +413,14 @@
                 searchQuery: '',
                 showExportImport: false,
                 exportImportStatus: '',
+                expandedId: null, // Track which transcript's metadata is expanded
 
                 init() {
                     this.waitForDb();
+                    // Listen for save events to auto-refresh
+                    window.addEventListener('transcript-saved', () => {
+                        this.refreshList();
+                    });
                 },
 
                 async waitForDb() {
@@ -385,6 +477,26 @@
                     if (!dateStr) return '';
                     const date = new Date(dateStr);
                     return date.toLocaleDateString();
+                },
+
+                formatDuration(seconds) {
+                    if (!seconds) return '';
+                    const mins = Math.floor(seconds / 60);
+                    const secs = seconds % 60;
+                    if (mins >= 60) {
+                        const hours = Math.floor(mins / 60);
+                        const remainingMins = mins % 60;
+                        return `${hours}h ${remainingMins}m`;
+                    }
+                    return `${mins}m ${secs}s`;
+                },
+
+                toggleExpanded(videoId) {
+                    this.expandedId = this.expandedId === videoId ? null : videoId;
+                },
+
+                getFullTranscript(videoId) {
+                    return TranscriptDB.get(videoId);
                 },
 
                 exportJson() {
@@ -486,6 +598,7 @@
                 pasteStatus: '',
                 saveStatus: '',
                 videoMetadata: null, // { videoId, title, channelName, videoUrl }
+                showCurrentMetadata: false,
 
                 get wordCount() {
                     return this.output ? this.output.trim().split(/\s+/).filter(Boolean).length : 0;
@@ -493,6 +606,18 @@
 
                 get charCount() {
                     return this.output.length;
+                },
+
+                formatDuration(seconds) {
+                    if (!seconds) return '';
+                    const mins = Math.floor(seconds / 60);
+                    const secs = seconds % 60;
+                    if (mins >= 60) {
+                        const hours = Math.floor(mins / 60);
+                        const remainingMins = mins % 60;
+                        return `${hours}h ${remainingMins}m`;
+                    }
+                    return `${mins}m ${secs}s`;
                 },
 
                 init() {
@@ -713,6 +838,8 @@
                         });
 
                         this.saveStatus = 'Saved!';
+                        // Dispatch event to refresh library
+                        window.dispatchEvent(new CustomEvent('transcript-saved'));
                         setTimeout(() => {
                             this.saveStatus = '';
                         }, 2000);
