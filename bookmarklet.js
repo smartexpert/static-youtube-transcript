@@ -11,6 +11,8 @@
  * 5. Click "Open App" to process the transcript
  *
  * Fallback: Manual fetch button if CC was already enabled
+ *
+ * Note: Uses DOM methods instead of innerHTML to comply with YouTube's Trusted Types CSP
  */
 
 (function() {
@@ -58,6 +60,35 @@
     // State
     let capturedTranscript = null;
     let isIntercepting = false;
+
+    // ========== HELPER: Create styled element ==========
+    function createEl(tag, styles, text) {
+        const el = document.createElement(tag);
+        if (styles) el.style.cssText = styles;
+        if (text) el.textContent = text;
+        return el;
+    }
+
+    // ========== HELPER: Update status display ==========
+    function updateStatus(emoji, mainText, mainColor, subText, extraLine) {
+        statusDiv.textContent = '';
+
+        const emojiEl = createEl('div', 'font-size:24px;margin-bottom:8px', emoji);
+        statusDiv.appendChild(emojiEl);
+
+        const mainEl = createEl('div', 'color:' + mainColor + ';font-weight:600', mainText);
+        statusDiv.appendChild(mainEl);
+
+        if (subText) {
+            const subEl = createEl('div', 'color:#6b7280;font-size:12px;margin-top:4px', subText);
+            statusDiv.appendChild(subEl);
+        }
+
+        if (extraLine) {
+            const extraEl = createEl('div', 'color:' + extraLine.color + ';font-size:11px;margin-top:8px', extraLine.text);
+            statusDiv.appendChild(extraEl);
+        }
+    }
 
     // ========== XHR INTERCEPTION ==========
     function installXHRInterceptor(onCapture) {
@@ -124,16 +155,21 @@
     header.appendChild(closeBtn);
     overlay.appendChild(header);
 
-    // Video title
+    // Video title (using DOM methods instead of innerHTML)
     const titleDiv = document.createElement('div');
     titleDiv.style.cssText = 'color:#aaa;font-size:12px;margin-bottom:16px';
-    titleDiv.innerHTML = '<strong style="color:#f1f1f1">Video:</strong> ' + title.substring(0, 50) + (title.length > 50 ? '...' : '');
+    const titleLabel = document.createElement('strong');
+    titleLabel.style.color = '#f1f1f1';
+    titleLabel.textContent = 'Video: ';
+    titleDiv.appendChild(titleLabel);
+    titleDiv.appendChild(document.createTextNode(title.substring(0, 50) + (title.length > 50 ? '...' : '')));
     overlay.appendChild(titleDiv);
 
     // Status indicator
     const statusDiv = document.createElement('div');
     statusDiv.style.cssText = 'background:#1a1a2e;border:1px solid #3b82f6;border-radius:8px;padding:16px;margin-bottom:16px;text-align:center';
-    statusDiv.innerHTML = '<div style="font-size:24px;margin-bottom:8px">⏳</div><div style="color:#60a5fa">Waiting for captions...</div><div style="color:#6b7280;font-size:12px;margin-top:4px">Click the CC button on the video</div>';
+    // Initial state using DOM methods
+    updateStatus('⏳', 'Waiting for captions...', '#60a5fa', 'Click the CC button on the video');
     overlay.appendChild(statusDiv);
 
     // Language selector
@@ -196,21 +232,20 @@
         capturedTranscript = rawJson;
 
         // Update status
-        const eventCount = parsed.events?.length || 0;
         const textEvents = parsed.events?.filter(e => e.segs).length || 0;
         const sizeKB = (rawJson.length / 1024).toFixed(1);
 
         statusDiv.style.borderColor = '#22c55e';
         statusDiv.style.background = '#052e16';
-        statusDiv.innerHTML = '<div style="font-size:24px;margin-bottom:8px">✅</div>' +
-            '<div style="color:#4ade80;font-weight:600">Transcript Captured!</div>' +
-            '<div style="color:#6b7280;font-size:12px;margin-top:4px">' + textEvents + ' segments, ' + sizeKB + ' KB</div>';
+        updateStatus('✅', 'Transcript Captured!', '#4ade80', textEvents + ' segments, ' + sizeKB + ' KB');
 
         // Copy to clipboard
         navigator.clipboard.writeText(rawJson).then(() => {
-            statusDiv.innerHTML += '<div style="color:#4ade80;font-size:11px;margin-top:8px">📋 Copied to clipboard</div>';
+            const clipboardMsg = createEl('div', 'color:#4ade80;font-size:11px;margin-top:8px', '📋 Copied to clipboard');
+            statusDiv.appendChild(clipboardMsg);
         }).catch(err => {
-            statusDiv.innerHTML += '<div style="color:#fca5a5;font-size:11px;margin-top:8px">⚠️ Clipboard copy failed</div>';
+            const clipboardMsg = createEl('div', 'color:#fca5a5;font-size:11px;margin-top:8px', '⚠️ Clipboard copy failed');
+            statusDiv.appendChild(clipboardMsg);
         });
 
         // Show open app button
@@ -247,9 +282,7 @@
         } catch (err) {
             statusDiv.style.borderColor = '#dc2626';
             statusDiv.style.background = '#450a0a';
-            statusDiv.innerHTML = '<div style="font-size:24px;margin-bottom:8px">❌</div>' +
-                '<div style="color:#fca5a5">Fetch failed</div>' +
-                '<div style="color:#6b7280;font-size:12px;margin-top:4px">Try toggling CC on the video instead</div>';
+            updateStatus('❌', 'Fetch failed', '#fca5a5', 'Try toggling CC on the video instead');
 
             fetchBtn.textContent = 'Fetch Manually';
             fetchBtn.disabled = false;
