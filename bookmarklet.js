@@ -49,8 +49,27 @@
         return;
     }
 
-    // Extract video title
-    const title = playerResponse.videoDetails?.title || document.title.replace(' - YouTube', '');
+    // Extract video metadata
+    const videoDetails = playerResponse.videoDetails || {};
+    const microformat = playerResponse.microformat?.playerMicroformatRenderer || {};
+
+    const metadata = {
+        videoId: videoId,
+        title: videoDetails.title || document.title.replace(' - YouTube', ''),
+        channelName: videoDetails.author || microformat.ownerChannelName || '',
+        channelId: videoDetails.channelId || '',
+        durationSeconds: parseInt(videoDetails.lengthSeconds) || null,
+        viewCount: parseInt(videoDetails.viewCount) || null,
+        publishDate: microformat.publishDate || '',
+        category: microformat.category || '',
+        description: (videoDetails.shortDescription || '').substring(0, 500), // Truncate for URL
+        keywords: (videoDetails.keywords || []).slice(0, 10).join(',') // First 10 keywords
+    };
+
+    log('Extracted metadata:', metadata);
+
+    // For backward compatibility
+    const title = metadata.title;
 
     // Extract caption tracks
     const captions = playerResponse.captions?.playerCaptionsTracklistRenderer?.captionTracks;
@@ -348,8 +367,17 @@
 
     // ========== OPEN APP ==========
     openAppBtn.onclick = function() {
-        // Open app with auto=1 to trigger auto-paste and process
-        window.open('https://youtube-transcript-4l9.pages.dev/?auto=1', '_blank');
+        // Build URL with metadata parameters
+        const params = new URLSearchParams({
+            auto: '1',
+            videoId: metadata.videoId,
+            title: metadata.title,
+            channel: metadata.channelName,
+            duration: metadata.durationSeconds || '',
+            publishDate: metadata.publishDate || ''
+        });
+        // Open app with metadata
+        window.open('https://youtube-transcript-4l9.pages.dev/?' + params.toString(), '_blank');
     };
 
     // ========== START INTERCEPTION ==========
