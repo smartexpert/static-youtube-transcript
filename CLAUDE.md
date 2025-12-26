@@ -48,8 +48,10 @@ The bookmarklet intercepts YouTube's network requests to capture transcript data
 2. Click bookmarklet → overlay appears
 3. Turn CC OFF then ON (triggers fresh timedtext request)
 4. Transcript automatically intercepted and copied to clipboard
-5. Paste into main app → get clean text
+5. Click "Open App" → app auto-pastes and processes → clean text ready
 ```
+
+**Note:** The app opens with `?auto=1` parameter which triggers automatic clipboard reading and processing. No manual paste required.
 
 ### Fallback: Manual Fetch
 
@@ -72,6 +74,18 @@ If CC was already enabled (cached), user can:
 - Safe to ignore
 
 ## Development Notes
+
+### Auto-Paste Feature
+
+When the app is opened with `?auto=1` parameter (from bookmarklet's "Open App" button):
+
+1. App waits for jq-web WASM to load
+2. Reads clipboard using `navigator.clipboard.readText()`
+3. Validates content is JSON with `events` property (transcript data)
+4. If valid, auto-populates input and processes
+5. Cleans up URL by removing `?auto=1` parameter
+
+**Fallback:** If clipboard access is denied or content isn't valid transcript JSON, user can paste manually.
 
 ### Updating the Bookmarklet
 
