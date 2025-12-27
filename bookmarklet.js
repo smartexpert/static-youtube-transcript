@@ -428,7 +428,7 @@
             publishDate: currentMeta.publishDate || ''
         });
         // Open app with metadata
-        window.open('https://youtube-transcript-4l9.pages.dev/?' + params.toString(), '_blank');
+        window.open('https://yt-captions.pages.dev/?' + params.toString(), '_blank');
     };
 
     // ========== START INTERCEPTION ==========
