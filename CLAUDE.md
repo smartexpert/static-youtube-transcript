@@ -205,14 +205,19 @@ Note: COEP (`require-corp`) was removed because Tailwind's CDN lacks CORS header
 
 ## Deployment
 
-### Cloudflare Pages (Recommended)
+### Cloudflare Pages via Wrangler CLI
 
-1. Connect your GitHub repo to Cloudflare Pages
-2. Settings:
-   - Build command: (leave empty)
-   - Build output directory: `/` (root)
-3. Push to `main` branch triggers automatic deployment
-4. The `_headers` file automatically applies security headers
+**Live URL:** https://yt-captions.pages.dev
+
+To deploy updates:
+```bash
+wrangler pages deploy . --project-name yt-captions
+```
+
+The project uses Direct Upload (Wrangler CLI), not Git integration. This means:
+- Deploy manually with the command above
+- Cannot switch to Git integration without recreating the project
+- The `_headers` file is automatically applied
 
 ### Alternative: GitHub Pages
 
