@@ -593,22 +593,22 @@
                     check();
                 },
 
-                refreshList() {
+                async refreshList() {
                     if (!this.isDbReady) return;
-                    this.transcripts = TranscriptDB.getAll();
-                    this.stats = TranscriptDB.getStats();
+                    this.transcripts = await TranscriptDB.getAll();
+                    this.stats = await TranscriptDB.getStats();
                 },
 
-                search() {
+                async search() {
                     if (!this.searchQuery.trim()) {
-                        this.refreshList();
+                        await this.refreshList();
                         return;
                     }
-                    this.transcripts = TranscriptDB.search(this.searchQuery);
+                    this.transcripts = await TranscriptDB.search(this.searchQuery);
                 },
 
-                loadTranscript(videoId) {
-                    const transcript = TranscriptDB.get(videoId);
+                async loadTranscript(videoId) {
+                    const transcript = await TranscriptDB.get(videoId);
                     if (transcript) {
                         // Dispatch event to main app with full metadata
                         window.dispatchEvent(new CustomEvent('load-transcript', {
@@ -654,20 +654,20 @@
                     this.expandedId = this.expandedId === videoId ? null : videoId;
                 },
 
-                getFullTranscript(videoId) {
-                    return TranscriptDB.get(videoId);
+                async getFullTranscript(videoId) {
+                    return await TranscriptDB.get(videoId);
                 },
 
-                exportJson() {
-                    const data = TranscriptDB.exportJson();
+                async exportJson() {
+                    const data = await TranscriptDB.exportJson();
                     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
                     this.downloadBlob(blob, 'transcripts.json');
                     this.exportImportStatus = 'Exported JSON file';
                     setTimeout(() => { this.exportImportStatus = ''; }, 2000);
                 },
 
-                exportSqlite() {
-                    const data = TranscriptDB.exportFile();
+                async exportSqlite() {
+                    const data = await TranscriptDB.exportFile();
                     const blob = new Blob([data], { type: 'application/x-sqlite3' });
                     this.downloadBlob(blob, 'transcripts.db');
                     this.exportImportStatus = 'Exported SQLite file';
