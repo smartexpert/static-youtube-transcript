@@ -434,3 +434,172 @@ CREATE INDEX idx_video_id ON transcripts(video_id);
 - WAL mode databases
 
 The architecture shift is: instead of "connect to a file", think of it as "the app has its own database that you can export/import."
+
+---
+
+## Implementation Audit Trail (December 2025)
+
+### Current Implementation: sql.js + IndexedDB
+
+The initial implementation used sql.js with IndexedDB persistence in `js/db.js`. This approach:
+- Loads the entire database into memory on startup
+- Re-exports the database blob to IndexedDB after each write
+- Works without COOP/COEP headers
+- Has IndexedDB storage limits (~50% of disk quota, can be evicted)
+
+### Planned Migration: Dual Storage (OPFS + D1)
+
+**Goal:** Support both local (OPFS) and cloud (D1) storage with user toggle.
+
+#### Storage Backend 1: Official sqlite-wasm + opfs-sahpool
+
+**Why opfs-sahpool:**
+- No COOP/COEP headers required (unlike regular OPFS VFS)
+- 3-4x faster than regular OPFS VFS
+- Works on all major browsers since March 2023
+- Larger storage limits than IndexedDB
+
+**CDN Structure (as of December 2025):**
+```
+https://cdn.jsdelivr.net/npm/@sqlite.org/sqlite-wasm@3.51.1-build2/
+├── index.mjs              (278 B)  - Main ES module entry
+├── index.d.ts             (277 KB) - TypeScript definitions
+├── node.mjs               (121 B)  - Node.js entry
+├── sqlite-wasm/
+│   └── jswasm/            - Actual WASM files and JS loaders
+└── package.json
+```
+
+**Initialization Pattern:**
+```javascript
+// In Web Worker only (OPFS not available on main thread)
+import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
+
+const sqlite3 = await sqlite3InitModule({
+    print: console.log,
+    printErr: console.error
+});
+
+// Install opfs-sahpool VFS
+const poolUtil = await sqlite3.installOpfsSAHPoolVfs({
+    initialCapacity: 4,    // Number of file handles to pre-allocate
+    clearOnInit: false     // Don't wipe storage on init
+});
+
+// Open database (paths must be absolute, start with /)
+const db = new poolUtil.OpfsSAHPoolDb('/transcripts.sqlite3');
+
+// Or via standard API with VFS name
+const db = new sqlite3.oo1.DB('file:/transcripts.sqlite3?vfs=opfs-sahpool');
+```
+
+**Limitations:**
+- Single connection only (one tab at a time)
+- Only works in Web Workers (not main thread)
+- Database paths must be absolute (start with `/`)
+
+#### Storage Backend 2: Cloudflare D1 (BYO-D1)
+
+**Approach:** Users configure their own D1 database, app makes direct REST API calls.
+
+**Why BYO-D1:**
+- No server-side code needed
+- App stays 100% static
+- Users own their data
+- No authentication infrastructure needed
+
+**D1 REST API:**
+```javascript
+// Query endpoint
+POST https://api.cloudflare.com/client/v4/accounts/{account_id}/d1/database/{database_id}/query
+
+// Headers
+Authorization: Bearer {api_token}
+Content-Type: application/json
+
+// Body
+{
+    "sql": "SELECT * FROM transcripts WHERE video_id = ?",
+    "params": ["dQw4w9WgXcQ"]
+}
+```
+
+**User Setup:**
+1. Create D1 database: `wrangler d1 create my-transcripts`
+2. Note the database_id from output
+3. Get Account ID from Cloudflare dashboard
+4. Create API token with D1:Edit permission
+5. Enter credentials in app settings
+
+**LocalStorage Config:**
+```javascript
+localStorage.setItem('storage-mode', 'local');  // 'local' | 'cloud'
+localStorage.setItem('d1-config', JSON.stringify({
+    accountId: 'abc123...',
+    databaseId: 'xyz789...',
+    apiToken: '***'
+}));
+```
+
+### Architecture Diagram
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                     Main App (index.html)                       │
+│                                                                 │
+│     TranscriptDB API (same interface for all backends)         │
+│                         │                                       │
+│            ┌────────────┼────────────┐                         │
+│            ▼            ▼            ▼                         │
+│     ┌──────────┐  ┌──────────┐  ┌──────────┐                  │
+│     │  OPFS    │  │  D1 API  │  │ IndexedDB│                  │
+│     │ (Worker) │  │ (fetch)  │  │(fallback)│                  │
+│     └────┬─────┘  └────┬─────┘  └────┬─────┘                  │
+│          │             │             │                         │
+│          ▼             ▼             ▼                         │
+│     ┌──────────┐  ┌──────────┐  ┌──────────┐                  │
+│     │ sqlite-  │  │Cloudflare│  │  sql.js  │                  │
+│     │ wasm     │  │ D1 REST  │  │ + IDB    │                  │
+│     │ sahpool  │  │   API    │  │          │                  │
+│     └──────────┘  └──────────┘  └──────────┘                  │
+└────────────────────────────────────────────────────────────────┘
+
+Settings Toggle: [Local (OPFS)] ←→ [Cloud (D1)]
+```
+
+### Files Created/Modified
+
+| File | Purpose |
+|------|---------|
+| `js/db-worker.js` | NEW: OPFS backend (Web Worker with sqlite-wasm) |
+| `js/db-d1.js` | NEW: D1 REST API client |
+| `js/db.js` | MODIFIED: Backend router + IndexedDB fallback |
+| `index.html` | MODIFIED: Settings UI for storage config |
+
+### Official SQLite Downloads
+
+From sqlite.org/download.html:
+- `sqlite-wasm-3510100.zip` (v3.51.1, 662 KB) - Precompiled WASM bundle
+- SHA3-256: `a60088d66f588d872e2c64e207d590de91bb4b966c7586901a56e28b9b201688`
+
+### CDN vs Local Hosting
+
+**Option 1: jsdelivr CDN (chosen)**
+- `https://cdn.jsdelivr.net/npm/@sqlite.org/sqlite-wasm@3.51.1-build2/index.mjs`
+- Pro: No files to host, always updated
+- Con: Requires network, CDN dependency
+
+**Option 2: Self-hosted**
+- Download zip from sqlite.org/download.html
+- Extract to project directory
+- Pro: Works offline, no external dependency
+- Con: Manual updates, larger repo
+
+### Sources
+
+- [D1 REST API - Query](https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/query/)
+- [D1 Import/Export](https://developers.cloudflare.com/d1/best-practices/import-export-data/)
+- [sqlite-wasm npm package](https://www.npmjs.com/package/@sqlite.org/sqlite-wasm)
+- [sqlite-wasm GitHub](https://github.com/sqlite/sqlite-wasm)
+- [sqlite.org WASM persistence docs](https://sqlite.org/wasm/doc/trunk/persistence.md)
+- [jsdelivr CDN for sqlite-wasm](https://www.jsdelivr.com/package/npm/@sqlite.org/sqlite-wasm)

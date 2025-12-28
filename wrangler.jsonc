@@ -1,0 +1,15 @@
+{
+  "$schema": "https://cdn.jsdelivr.net/npm/wrangler/config-schema.json",
+  "name": "yt-captions",
+  "compatibility_date": "2024-12-01",
+  "pages_build_output_dir": ".",
+
+  // D1 Database binding - scoped to single database only
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "yt-transcripts",
+      "database_id": "fe3ee1da-3c9d-4d58-b1c9-5462ddb33755"
+    }
+  ]
+}

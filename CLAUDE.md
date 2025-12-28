@@ -11,11 +11,13 @@ A static HTML app that extracts and cleans YouTube transcript data with local SQ
 ## File Structure
 
 ```
-├── index.html              # Main app (Alpine.js + Tailwind + jq-web + sql.js)
+├── index.html              # Main app (Alpine.js + Tailwind + jq-web)
 ├── bookmarklet.js          # Source bookmarklet code (readable version)
 ├── _headers                # Cloudflare Pages headers (COOP)
 ├── js/
-│   └── db.js               # Database module (sql.js + IndexedDB)
+│   ├── db.js               # Database router (selects backend based on mode)
+│   ├── db-worker.js        # OPFS backend (Web Worker with sqlite-wasm)
+│   └── db-d1.js            # D1 backend (REST API client)
 ├── docs/
 │   ├── SPEC.md             # Original app specification
 │   ├── RESEARCH.md         # Technical research on YouTube APIs
@@ -145,14 +147,41 @@ The app uses this JQ query to extract clean text:
 
 ## SQLite Storage
 
-### Architecture
+### Architecture (Dual Storage System)
 
-The app uses **sql.js** (SQLite compiled to WebAssembly) with IndexedDB persistence:
+The app supports multiple storage backends with automatic fallback:
 
-- Database is stored in browser's IndexedDB as a single binary blob
-- Loads entirely into memory on startup (~instant for typical usage)
-- Automatically saves after each write operation
-- No server required - fully client-side
+```
+┌─────────────────────────────────────────────────────┐
+│                 TranscriptDB API                     │
+│           (same interface for all backends)          │
+│                         │                            │
+│         ┌───────────────┼───────────────┐           │
+│         ▼               ▼               ▼           │
+│   ┌──────────┐   ┌──────────┐   ┌──────────┐       │
+│   │   OPFS   │   │    D1    │   │ IndexedDB│       │
+│   │ (Worker) │   │  (REST)  │   │(fallback)│       │
+│   └──────────┘   └──────────┘   └──────────┘       │
+└─────────────────────────────────────────────────────┘
+```
+
+**Storage Backends:**
+
+1. **OPFS (Default)** - Local storage using official sqlite-wasm + opfs-sahpool VFS
+   - Runs in Web Worker (`js/db-worker.js`)
+   - No COOP/COEP headers required
+   - Best performance, larger storage than IndexedDB
+
+2. **D1 (Cloud)** - User's own Cloudflare D1 database
+   - Direct REST API calls (`js/db-d1.js`)
+   - Cross-device sync
+   - Requires user configuration
+
+3. **IndexedDB (Fallback)** - sql.js with IndexedDB persistence
+   - For browsers without OPFS support
+   - ~50% disk quota limit
+
+**Storage Mode:** Controlled via `localStorage.getItem('storage-mode')` - either `'local'` or `'cloud'`
 
 ### Database API (`window.TranscriptDB`)
 
@@ -168,6 +197,27 @@ TranscriptDB.exportJson()        // Export as JSON
 TranscriptDB.exportFile()        // Export as SQLite file
 TranscriptDB.importJson(data)    // Import from JSON
 TranscriptDB.importFile(buffer)  // Import SQLite file
+TranscriptDB.getStorageInfo()    // Get current backend info
+TranscriptDB.hasOPFSSupport()    // Check OPFS availability
+TranscriptDB.hasD1Config()       // Check D1 configuration
+```
+
+### D1 (BYO-D1) Configuration
+
+Users can connect their own Cloudflare D1 database:
+
+1. Create D1: `wrangler d1 create my-transcripts`
+2. Get Account ID from Cloudflare dashboard
+3. Create API Token with D1:Edit permission
+4. Enter credentials in app Settings → Storage Settings
+
+**Configuration stored in localStorage:**
+```javascript
+localStorage.setItem('d1-config', JSON.stringify({
+    accountId: 'abc123...',
+    databaseId: 'xyz789...',
+    apiToken: '***'
+}));
 ```
 
 ### Schema

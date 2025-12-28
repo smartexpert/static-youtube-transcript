@@ -9,6 +9,7 @@
     <script src="https://cdn.jsdelivr.net/npm/jq-web@0.5.1/jq.wasm.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.min.js"></script>
     <script src="js/db.js"></script>
+    <script src="js/db-d1.js"></script>
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -361,6 +362,151 @@
             </div>
         </div>
 
+        <!-- Storage Settings Section -->
+        <div x-data="storageSettings()" class="mt-8 rounded-lg border border-slate-800 bg-slate-900 p-6 shadow-sm">
+            <button
+                @click="isExpanded = !isExpanded"
+                class="w-full flex justify-between items-center"
+            >
+                <h2 class="text-lg font-semibold text-slate-50">Storage Settings</h2>
+                <div class="flex items-center gap-2">
+                    <span class="text-xs px-2 py-1 rounded" :class="{
+                        'bg-green-900 text-green-300': storageInfo.backend === 'opfs',
+                        'bg-blue-900 text-blue-300': storageInfo.backend === 'd1',
+                        'bg-yellow-900 text-yellow-300': storageInfo.backend === 'indexeddb'
+                    }" x-text="storageInfo.backend?.toUpperCase() || 'Loading...'"></span>
+                    <svg class="w-5 h-5 text-slate-400 transition-transform" :class="{ 'rotate-180': isExpanded }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </div>
+            </button>
+
+            <div x-show="isExpanded" x-transition class="mt-4 space-y-4">
+                <!-- Storage Mode Toggle -->
+                <div>
+                    <label class="block text-sm font-medium text-slate-300 mb-2">Storage Mode</label>
+                    <div class="flex gap-2">
+                        <button
+                            @click="setStorageMode('local')"
+                            class="flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                            :class="storageMode === 'local' ? 'bg-slate-50 text-slate-900' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'"
+                        >
+                            Local (OPFS)
+                        </button>
+                        <button
+                            @click="setStorageMode('cloud')"
+                            class="flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                            :class="storageMode === 'cloud' ? 'bg-slate-50 text-slate-900' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'"
+                        >
+                            Cloud (D1)
+                        </button>
+                    </div>
+                    <p class="text-xs text-slate-500 mt-2">
+                        <span x-show="storageMode === 'local'">Data stored in your browser using OPFS (or IndexedDB fallback).</span>
+                        <span x-show="storageMode === 'cloud'">Data stored in your own Cloudflare D1 database.</span>
+                    </p>
+                </div>
+
+                <!-- Storage Info -->
+                <div class="p-3 rounded-md bg-slate-800 border border-slate-700">
+                    <div class="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                            <span class="text-slate-500">Current Backend:</span>
+                            <span class="text-slate-300 ml-1" x-text="storageInfo.backend?.toUpperCase() || 'Unknown'"></span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500">OPFS Available:</span>
+                            <span class="ml-1" :class="storageInfo.opfsAvailable ? 'text-green-400' : 'text-red-400'" x-text="storageInfo.opfsAvailable ? 'Yes' : 'No'"></span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500">D1 Configured:</span>
+                            <span class="ml-1" :class="storageInfo.d1Configured ? 'text-green-400' : 'text-slate-400'" x-text="storageInfo.d1Configured ? 'Yes' : 'No'"></span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500">Mode:</span>
+                            <span class="text-slate-300 ml-1" x-text="storageInfo.mode || 'local'"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- D1 Configuration (only shown when cloud mode selected) -->
+                <div x-show="storageMode === 'cloud'" x-transition class="space-y-3">
+                    <h3 class="text-sm font-medium text-slate-300">D1 Configuration</h3>
+                    <p class="text-xs text-slate-500">
+                        Uses Pages Functions to connect securely to D1. No Cloudflare credentials exposed.
+                    </p>
+
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs text-slate-400 mb-1">API Key</label>
+                            <div class="flex gap-2">
+                                <input
+                                    type="password"
+                                    x-model="apiKey"
+                                    placeholder="Your API key"
+                                    class="flex-1 px-3 py-2 rounded-md border border-slate-700 bg-slate-800 text-slate-50 text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-400 font-mono"
+                                >
+                                <button
+                                    @click="generateApiKey()"
+                                    class="px-3 py-2 rounded-md text-xs bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors whitespace-nowrap"
+                                    title="Generate a random API key"
+                                >
+                                    Generate
+                                </button>
+                            </div>
+                            <p class="text-xs text-slate-500 mt-1">
+                                Same key must be set as secret: <code class="bg-slate-800 px-1 rounded">wrangler pages secret put API_KEY</code>
+                            </p>
+                        </div>
+
+                        <div class="flex gap-2 flex-wrap">
+                            <button
+                                @click="saveApiKey()"
+                                class="px-4 py-2 rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                            >
+                                Save Key
+                            </button>
+                            <button
+                                @click="testD1Connection()"
+                                :disabled="!apiKey"
+                                class="px-4 py-2 rounded-md text-sm font-medium bg-slate-700 text-slate-200 hover:bg-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Test Connection
+                            </button>
+                            <button
+                                @click="initD1Schema()"
+                                :disabled="!apiKey"
+                                class="px-4 py-2 rounded-md text-sm font-medium bg-slate-700 text-slate-200 hover:bg-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Init Schema
+                            </button>
+                        </div>
+
+                        <p class="text-xs" :class="d1Status.success ? 'text-green-400' : 'text-red-400'" x-show="d1Status.message" x-text="d1Status.message"></p>
+                    </div>
+                </div>
+
+                <!-- Data Migration -->
+                <div class="border-t border-slate-700 pt-4">
+                    <h3 class="text-sm font-medium text-slate-300 mb-2">Data Migration</h3>
+                    <p class="text-xs text-slate-500 mb-3">Export data from current backend and import to another.</p>
+                    <div class="flex gap-2 flex-wrap">
+                        <button
+                            @click="exportCurrentData()"
+                            class="px-3 py-1.5 rounded text-xs bg-slate-700 text-slate-200 hover:bg-slate-600 transition-colors"
+                        >
+                            Export Current Data
+                        </button>
+                        <label class="px-3 py-1.5 rounded text-xs bg-slate-700 text-slate-200 hover:bg-slate-600 transition-colors cursor-pointer">
+                            Import Data
+                            <input type="file" accept=".json" @change="importData($event)" class="hidden">
+                        </label>
+                    </div>
+                    <p class="text-xs text-slate-400 mt-2" x-show="migrationStatus" x-text="migrationStatus"></p>
+                </div>
+            </div>
+        </div>
+
         <!-- Bookmarklet Section -->
         <div x-data="bookmarkletInstaller()" class="mt-8 rounded-lg border border-slate-800 bg-slate-900 p-6 shadow-sm">
             <h2 class="text-lg font-semibold text-slate-50 mb-3">Get the Bookmarklet</h2>
@@ -564,6 +710,140 @@
                         setTimeout(() => { this.exportImportStatus = ''; }, 3000);
                     } catch (e) {
                         this.exportImportStatus = 'Import failed: ' + e.message;
+                    }
+                    event.target.value = '';
+                }
+            };
+        }
+
+        function storageSettings() {
+            return {
+                isExpanded: false,
+                storageMode: 'local',
+                storageInfo: { backend: 'unknown', opfsAvailable: false, d1Configured: false, mode: 'local' },
+                apiKey: '',
+                d1Status: { success: false, message: '' },
+                migrationStatus: '',
+
+                init() {
+                    // Load current settings
+                    this.storageMode = localStorage.getItem('storage-mode') || 'local';
+                    this.apiKey = localStorage.getItem('d1-api-key') || '';
+
+                    // Wait for DB to initialize, then get storage info
+                    this.waitForDbInfo();
+                },
+
+                async waitForDbInfo() {
+                    const check = () => {
+                        if (window.TranscriptDB && typeof TranscriptDB.getStorageInfo === 'function') {
+                            this.updateStorageInfo();
+                        } else {
+                            setTimeout(check, 200);
+                        }
+                    };
+                    check();
+                },
+
+                updateStorageInfo() {
+                    try {
+                        this.storageInfo = TranscriptDB.getStorageInfo();
+                    } catch (e) {
+                        console.error('[Settings] Failed to get storage info:', e);
+                    }
+                },
+
+                generateApiKey() {
+                    // Generate a random 32-character API key
+                    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+                    let key = '';
+                    const array = new Uint8Array(32);
+                    crypto.getRandomValues(array);
+                    for (let i = 0; i < 32; i++) {
+                        key += chars[array[i] % chars.length];
+                    }
+                    this.apiKey = key;
+                    this.d1Status = { success: true, message: 'Key generated. Remember to save it and set it as a Worker secret.' };
+                    setTimeout(() => { this.d1Status = { success: false, message: '' }; }, 5000);
+                },
+
+                setStorageMode(mode) {
+                    this.storageMode = mode;
+                    localStorage.setItem('storage-mode', mode);
+                    this.d1Status = { success: true, message: 'Storage mode changed. Reload to apply.' };
+                    setTimeout(() => { this.d1Status = { success: false, message: '' }; }, 3000);
+                },
+
+                saveApiKey() {
+                    D1Backend.setApiKey(this.apiKey);
+                    this.d1Status = { success: true, message: 'API key saved.' };
+                    this.updateStorageInfo();
+                    setTimeout(() => { this.d1Status = { success: false, message: '' }; }, 3000);
+                },
+
+                async testD1Connection() {
+                    this.d1Status = { success: false, message: 'Testing connection...' };
+
+                    // Save key for test
+                    D1Backend.setApiKey(this.apiKey);
+
+                    try {
+                        const backend = new D1Backend();
+                        const result = await backend.testConnection();
+                        this.d1Status = result;
+                        setTimeout(() => { this.d1Status = { success: false, message: '' }; }, 5000);
+                    } catch (e) {
+                        this.d1Status = { success: false, message: 'Connection failed: ' + e.message };
+                    }
+                },
+
+                async initD1Schema() {
+                    this.d1Status = { success: false, message: 'Initializing schema...' };
+
+                    // Save key first
+                    D1Backend.setApiKey(this.apiKey);
+
+                    try {
+                        const backend = new D1Backend();
+                        await backend.init();
+                        this.d1Status = { success: true, message: 'Schema initialized successfully!' };
+                        setTimeout(() => { this.d1Status = { success: false, message: '' }; }, 5000);
+                    } catch (e) {
+                        this.d1Status = { success: false, message: 'Schema init failed: ' + e.message };
+                    }
+                },
+
+                async exportCurrentData() {
+                    try {
+                        const data = await TranscriptDB.exportJson();
+                        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `transcripts-${this.storageInfo.backend}-${new Date().toISOString().split('T')[0]}.json`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                        this.migrationStatus = 'Data exported successfully';
+                        setTimeout(() => { this.migrationStatus = ''; }, 3000);
+                    } catch (e) {
+                        this.migrationStatus = 'Export failed: ' + e.message;
+                    }
+                },
+
+                async importData(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+
+                    try {
+                        const text = await file.text();
+                        const data = JSON.parse(text);
+                        const result = await TranscriptDB.importJson(data);
+                        this.migrationStatus = `Imported ${result.imported} transcripts`;
+                        // Refresh the library
+                        window.dispatchEvent(new CustomEvent('transcript-saved'));
+                        setTimeout(() => { this.migrationStatus = ''; }, 5000);
+                    } catch (e) {
+                        this.migrationStatus = 'Import failed: ' + e.message;
                     }
                     event.target.value = '';
                 }
